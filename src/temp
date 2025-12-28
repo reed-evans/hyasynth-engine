@@ -1,0 +1,18 @@
+!! Need transport changes mid-slice
+
+Good next options:
+1. Example nodes
+    oscillator
+    envelope
+    gain
+    voice-aware ADSR
+2. VoiceAllocator internals
+    voice stealing
+    per-voice state storage
+3. Routing graph
+    node connections
+    summing
+    feedback handling
+4. Modulation system
+    control-rate signals
+    per-voice modulation
