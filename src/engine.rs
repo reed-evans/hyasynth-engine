@@ -1,7 +1,8 @@
+// src/engine.rs
+
 use crate::event::Event;
 use crate::execution_plan::{ExecutionPlan, SlicePlan};
 use crate::graph::Graph;
-use crate::transport::Transport;
 use crate::voice_allocator::VoiceAllocator;
 
 /// Real-time audio engine.
@@ -15,9 +16,9 @@ pub struct Engine {
 
     /// Voice allocator and active voice set
     voices: VoiceAllocator,
-
-    /// Current transport (sample domain only)
-    transport: Transport,
+    
+    /// Current sample position
+    sample_pos: u64,
 }
 
 impl Engine {
@@ -25,7 +26,7 @@ impl Engine {
         Self {
             graph,
             voices,
-            transport: Transport::default(),
+            sample_pos: 0,
         }
     }
 
@@ -34,59 +35,65 @@ impl Engine {
     /// Called once per audio block from the audio callback.
     /// It must not allocate or block.
     pub fn process_plan(&mut self, plan: &ExecutionPlan) {
-        debug_assert!(plan.slices.iter().all(|s| s.frame_count > 0));
+        self.sample_pos = plan.block_start_sample;
+        
+        // Clear one-shot voice triggers at block start
+        self.voices.clear_triggers();
 
-        // Transport is fully dictated by the plan
-        self.transport.sample_pos = plan.block_start_sample;
-
-        for slice in plan.slices.iter() {
-            self.process_slice(slice);
+        for slice in &plan.slices {
+            self.process_slice(slice, plan);
         }
     }
 
     /// Execute one slice of time.
-    ///
-    /// This performs deterministic graph execution
-    /// Event dispatch happens in the scheduler.
     #[inline(always)]
-    fn process_slice(&mut self, slice: &SlicePlan) {
+    fn process_slice(&mut self, slice: &SlicePlan, plan: &ExecutionPlan) {
         // Apply events at slice boundary
         for event in &slice.events {
             self.apply_event(event);
         }
 
-        // Transport is already resolved and stable
-        self.transport = slice.transport;
-
-        // Run DSP for the whole slice
-        self.graph.process_slice(slice, &self.voices);
-
-        // Advance global sample clock
-        self.transport.sample_pos += slice.frame_count as u64;
+        // Process the graph for this slice
+        let slice_start = self.sample_pos + slice.frame_offset as u64;
+        self.graph.process(
+            slice.frame_count,
+            slice_start,
+            plan.bpm,
+            &self.voices,
+        );
     }
 
     /// Apply a musical event immediately.
-    ///
-    /// This is the *only* place where musical intent mutates
-    /// engine-visible state.
     #[inline]
     fn apply_event(&mut self, event: &Event) {
         match event {
-            Event::NoteOn { note, velocity, .. } => {
+            Event::NoteOn { note, velocity } => {
                 self.voices.note_on(*note, *velocity);
             }
 
-            Event::NoteOff { note, .. } => {
+            Event::NoteOff { note } => {
                 self.voices.note_off(*note);
             }
 
-            Event::ParamChange {
-                param_id, value, ..
-            } => {
-                // Parameter routing happens elsewhere
-                // (param store, modulation system, etc.)
-                self.graph.set_param(*param_id, *value);
+            Event::ParamChange { node_id, param_id, value } => {
+                self.graph.set_param(*node_id as usize, *param_id, *value);
             }
         }
     }
+    
+    /// Reset the engine (on transport stop/seek)
+    pub fn reset(&mut self) {
+        self.graph.reset();
+    }
+    
+    /// Get the output buffer after processing
+    pub fn output_buffer(&self, frames: usize) -> Option<&[f32]> {
+        self.graph.output_buffer(frames)
+    }
+    
+    /// Get active voice count
+    pub fn active_voices(&self) -> usize {
+        self.voices.active_count()
+    }
 }
+

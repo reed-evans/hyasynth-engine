@@ -3,7 +3,7 @@
 use crate::event::{Event, MusicalEvent};
 use crate::execution_plan::SlicePlan;
 use crate::plan_handoff::PlanHandoff;
-use crate::transport::{MusicalTransport, Transport};
+use crate::transport::MusicalTransport;
 
 /// Compiles musical-time intent into sample-accurate execution plans.
 ///
@@ -12,21 +12,24 @@ use crate::transport::{MusicalTransport, Transport};
 pub struct Scheduler {
     /// Musical-time transport (beats, tempo, etc.)
     musical_transport: MusicalTransport,
+    
+    /// Pre-allocated scratch buffer for sorting events
+    event_scratch: Vec<(u64, MusicalEvent)>,
+    
+    /// Pre-allocated scratch for compiled events per slice
+    compiled_scratch: Vec<Event>,
 }
 
 impl Scheduler {
     pub fn new(sample_rate: f64) -> Self {
         Self {
             musical_transport: MusicalTransport::new(sample_rate),
+            event_scratch: Vec::with_capacity(64),
+            compiled_scratch: Vec::with_capacity(16),
         }
     }
 
     /// Compile the next audio block.
-    ///
-    /// This function:
-    /// - advances musical transport
-    /// - applies musical events at correct sample boundaries
-    /// - emits event-free, transport-stable slices
     pub fn compile_block(
         &mut self,
         handoff: &mut PlanHandoff,
@@ -34,94 +37,97 @@ impl Scheduler {
         musical_events: &[MusicalEvent],
     ) {
         let plan = handoff.write_plan();
-
+        
         let block_start_sample = self.musical_transport.sample_position();
         let block_end_sample = block_start_sample + block_frames as u64;
-
+        
         plan.block_start_sample = block_start_sample;
         plan.block_frames = block_frames;
+        plan.bpm = self.musical_transport.bpm();
+        plan.sample_rate = self.musical_transport.sample_rate();
         plan.slices.clear();
 
-        // Sort events by beat (defensive; caller *should* already do this)
-        let mut events = musical_events.to_vec();
-        events.sort_by(|a, b| {
-            self.musical_transport
-                .event_sample_position(a)
-                .partial_cmp(&self.musical_transport.event_sample_position(b))
-                .unwrap()
-        });
+        // Sort events by sample position using scratch buffer
+        self.event_scratch.clear();
+        for event in musical_events {
+            if let Some(sample_pos) = self.musical_transport.event_sample_position(event) {
+                if sample_pos >= block_start_sample && sample_pos < block_end_sample {
+                    self.event_scratch.push((sample_pos, event.clone()));
+                }
+            }
+        }
+        self.event_scratch.sort_by_key(|(pos, _)| *pos);
 
+        // If no events, emit single slice for whole block
+        if self.event_scratch.is_empty() {
+            plan.slices.push(SlicePlan::new(0, block_frames));
+            self.musical_transport.advance_samples(block_frames);
+            handoff.publish();
+            return;
+        }
+
+        // Build slices with events at boundaries
         let mut event_index = 0;
-        let mut cursor_sample = block_start_sample;
+        let mut cursor_frame = 0usize;
 
-        while cursor_sample < block_end_sample {
-            // ------------------------------------------------------------
-            // 1. Determine next boundary (event or transport change)
-            // ------------------------------------------------------------
-
-            let next_event_sample = events
-                .get(event_index)
-                .and_then(|e| self.musical_transport.event_sample_position(e))
-                .unwrap_or(block_end_sample);
-
-            // TODO: Implement block-leveltransport changes
-            // let next_transport_sample = self.musical_transport.next_transport_change_sample();
-
-            let slice_end_sample = next_event_sample
-                // .min(next_transport_sample)
-                .min(block_end_sample);
-
-            let slice_frames = (slice_end_sample - cursor_sample) as usize;
-
-            // ------------------------------------------------------------
-            // Queue all events at this boundary
-            // ------------------------------------------------------------
-
-            let mut pre_slice_events = Vec::new();
-            while let Some(event) = events.get(event_index) {
-                let event_sample = self
-                    .musical_transport
-                    .event_sample_position(event)
-                    .unwrap_or(u64::MAX);
-
-                if event_sample == cursor_sample {
-                    pre_slice_events.push(Self::compile_event(event).unwrap());
+        while cursor_frame < block_frames {
+            // Collect events at current position
+            let cursor_sample = block_start_sample + cursor_frame as u64;
+            self.compiled_scratch.clear();
+            
+            while event_index < self.event_scratch.len() {
+                let (event_sample, _) = &self.event_scratch[event_index];
+                if *event_sample == cursor_sample {
+                    let (_, event) = &self.event_scratch[event_index];
+                    if let Some(compiled) = Self::compile_event(event) {
+                        self.compiled_scratch.push(compiled);
+                    }
                     event_index += 1;
                 } else {
                     break;
                 }
             }
+            
+            // Find next event boundary (or end of block)
+            let next_boundary_frame = self.event_scratch
+                .get(event_index)
+                .map(|(pos, _)| (*pos - block_start_sample) as usize)
+                .unwrap_or(block_frames);
+            
+            let slice_end_frame = next_boundary_frame.min(block_frames);
+            let slice_frames = slice_end_frame - cursor_frame;
 
-            // ------------------------------------------------------------
-            // Emit slice if it has non-zero duration
-            // ------------------------------------------------------------
-
+            // Emit slice (may have 0 events)
             if slice_frames > 0 {
-                let transport: Transport = self.musical_transport.resolve_transport();
-
-                plan.slices.push(SlicePlan {
-                    start_sample: cursor_sample,
-                    frame_count: slice_frames,
-                    transport,
-                    events: pre_slice_events,
-                });
-
-                self.musical_transport.advance_samples(slice_frames);
-                cursor_sample += slice_frames as u64;
+                let mut slice = SlicePlan::new(cursor_frame, slice_frames);
+                slice.events.extend(self.compiled_scratch.drain(..));
+                plan.slices.push(slice);
+                cursor_frame = slice_end_frame;
+            } else {
+                // Events at same position as end - attach to last slice if possible
+                if !self.compiled_scratch.is_empty() {
+                    if let Some(last) = plan.slices.last_mut() {
+                        last.events.extend(self.compiled_scratch.drain(..));
+                    }
+                }
+                cursor_frame = slice_end_frame;
             }
         }
 
+        // Advance transport
+        self.musical_transport.advance_samples(block_frames);
+
         debug_assert!(
-            plan.slices.iter().map(|s| s.frame_count).sum::<usize>() == plan.block_frames
+            plan.slices.iter().map(|s| s.frame_count).sum::<usize>() == plan.block_frames,
+            "Slice frames don't sum to block frames: {} != {}",
+            plan.slices.iter().map(|s| s.frame_count).sum::<usize>(),
+            plan.block_frames
         );
 
         handoff.publish();
     }
 
     /// Convert a musical event into an engine event.
-    ///
-    /// This is the ONLY place where musical intent crosses
-    /// into engine-executable instructions.
     #[inline]
     fn compile_event(event: &MusicalEvent) -> Option<Event> {
         match event {
@@ -132,12 +138,21 @@ impl Scheduler {
 
             MusicalEvent::NoteOff { note, .. } => Some(Event::NoteOff { note: *note }),
 
-            MusicalEvent::ParamChange {
-                param_id, value, ..
-            } => Some(Event::ParamChange {
+            MusicalEvent::ParamChange { node_id, param_id, value, .. } => Some(Event::ParamChange {
+                node_id: *node_id,
                 param_id: *param_id,
                 value: *value,
             }),
         }
+    }
+    
+    /// Get current beat position
+    pub fn beat_position(&self) -> f64 {
+        self.musical_transport.beat_position()
+    }
+    
+    /// Set tempo
+    pub fn set_bpm(&mut self, bpm: f64) {
+        self.musical_transport.set_bpm(bpm);
     }
 }

@@ -25,9 +25,20 @@ pub enum MusicalEvent {
 
     ParamChange {
         beat: f64,
+        node_id: u32,
         param_id: u32,
         value: f32,
     },
+}
+
+impl MusicalEvent {
+    pub fn beat(&self) -> f64 {
+        match self {
+            MusicalEvent::NoteOn { beat, .. } => *beat,
+            MusicalEvent::NoteOff { beat, .. } => *beat,
+            MusicalEvent::ParamChange { beat, .. } => *beat,
+        }
+    }
 }
 
 /// ===============================
@@ -42,9 +53,18 @@ pub enum MusicalEvent {
 /// - are dispatched by the engine exactly once
 #[derive(Debug, Clone)]
 pub enum Event {
-    NoteOn { note: u8, velocity: f32 },
+    NoteOn { 
+        note: u8, 
+        velocity: f32,
+    },
 
-    NoteOff { note: u8 },
+    NoteOff { 
+        note: u8,
+    },
 
-    ParamChange { param_id: u32, value: f32 },
+    ParamChange { 
+        node_id: u32,
+        param_id: u32, 
+        value: f32,
+    },
 }

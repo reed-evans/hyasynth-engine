@@ -1,11 +1,6 @@
-use crate::event::Event;
-use crate::transport::Transport;
+// src/execution_plan.rs
 
-//
-// ===============================
-// MARK: Execution plan (scheduler -> engine)
-// ===============================
-//
+use crate::event::Event;
 
 /// A fully precompiled, immutable plan for executing one audio block.
 ///
@@ -22,34 +17,58 @@ pub struct ExecutionPlan {
 
     /// Total number of frames in this block
     pub block_frames: usize,
+    
+    /// Current tempo in BPM
+    pub bpm: f64,
+    
+    /// Sample rate
+    pub sample_rate: f64,
 
-    /// Event-free, transport-stable slices
+    /// Event-free slices (for sample-accurate event timing)
     pub slices: Vec<SlicePlan>,
 }
 
-//
-// ===============================
-// MARK: Slice plan
-// ===============================
-//
+impl ExecutionPlan {
+    pub fn new(sample_rate: f64) -> Self {
+        Self {
+            block_start_sample: 0,
+            block_frames: 0,
+            bpm: 120.0,
+            sample_rate,
+            slices: Vec::with_capacity(16), // Pre-allocate for typical case
+        }
+    }
+}
 
-/// A contiguous region of samples with stable transport within a block.
+impl Default for ExecutionPlan {
+    fn default() -> Self {
+        Self::new(48_000.0)
+    }
+}
+
+/// A contiguous region of samples within a block.
 ///
 /// Invariants:
-/// - No musical or engine events occur inside a slice
-/// - Transport does not change during the slice
-/// - The engine must process the entire slice in one DSP call
+/// - Events are applied at the START of this slice
+/// - No events occur during the slice
 #[derive(Debug, Clone)]
 pub struct SlicePlan {
-    /// Absolute sample position of the slice start
-    pub start_sample: u64,
+    /// Offset from block start (in frames)
+    pub frame_offset: usize,
 
     /// Number of frames to process
     pub frame_count: usize,
 
-    /// Fully resolved transport state for this slice
-    pub transport: Transport,
-
-    /// Events that must be applied *before* this slice runs
+    /// Events to apply before processing this slice
     pub events: Vec<Event>,
+}
+
+impl SlicePlan {
+    pub fn new(frame_offset: usize, frame_count: usize) -> Self {
+        Self {
+            frame_offset,
+            frame_count,
+            events: Vec::new(),
+        }
+    }
 }

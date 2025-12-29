@@ -142,6 +142,11 @@ impl MusicalTransport {
     pub fn bpm(&self) -> f64 {
         self.bpm
     }
+    
+    #[inline]
+    pub fn sample_rate(&self) -> f64 {
+        self.sample_rate
+    }
 
     // -------------------------------
     // MARK: Mutators (scheduler-controlled)

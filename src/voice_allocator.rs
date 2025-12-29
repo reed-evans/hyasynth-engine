@@ -1,4 +1,6 @@
-use crate::voice::{Voice, VoiceId};
+// src/voice_allocator.rs
+
+use crate::voice::{Voice, VoiceContext, VoiceId};
 
 /// Allocates and manages polyphonic voices.
 ///
@@ -16,43 +18,66 @@ pub struct VoiceAllocator {
 
 impl VoiceAllocator {
     pub fn new(max_voices: usize) -> Self {
-        let voices = (0..max_voices).map(|id| Voice::new(id)).collect();
-
+        let voices = (0..max_voices).map(Voice::new).collect();
         Self { voices }
+    }
+
+    /// Clear one-shot trigger flags at start of each block.
+    pub fn clear_triggers(&mut self) {
+        for voice in &mut self.voices {
+            voice.clear_triggers();
+        }
     }
 
     /// Allocate a voice for a note-on event.
     ///
     /// Returns the allocated voice id.
     pub fn note_on(&mut self, note: u8, velocity: f32) -> Option<VoiceId> {
-        // Find a free voice
+        // First, try to find an inactive voice
         if let Some(v) = self.voices.iter_mut().find(|v| !v.active) {
-            v.active = true;
-            v.note = note;
-            v.velocity = velocity;
-            Some(v.id)
-        } else {
-            // Voice stealing policy will go here
-            None
+            v.note_on(note, velocity);
+            return Some(v.id);
         }
+        
+        // TODO: Voice stealing policy
+        // For now, steal the first voice (oldest)
+        if let Some(v) = self.voices.first_mut() {
+            v.note_on(note, velocity);
+            return Some(v.id);
+        }
+        
+        None
     }
 
     /// Release the voice associated with a note-off event.
     pub fn note_off(&mut self, note: u8) {
-        if let Some(v) = self.voices.iter_mut().find(|v| v.active && v.note == note) {
-            v.active = false;
+        if let Some(v) = self.voices.iter_mut().find(|v| v.active && v.gate && v.note == note) {
+            v.note_off();
+        }
+    }
+    
+    /// Deactivate a voice (called when envelope finishes release).
+    pub fn deactivate(&mut self, voice_id: VoiceId) {
+        if let Some(v) = self.voices.get_mut(voice_id) {
+            v.deactivate();
         }
     }
 
-    /// Iterate over active voices (immutable).
-    pub fn active_voices(&self) -> impl Iterator<Item = &Voice> {
-        self.voices.iter().filter(|v| v.active)
+    /// Iterate over active voices.
+    pub fn active_voices(&self) -> impl Iterator<Item = VoiceContext> + '_ {
+        self.voices
+            .iter()
+            .filter(|v| v.active)
+            .map(VoiceContext::from)
     }
-
-    /// Iterate over active voices (mutable).
-    ///
-    /// Needed for per-voice DSP state updates.
-    pub fn active_voices_mut(&mut self) -> impl Iterator<Item = &mut Voice> {
-        self.voices.iter_mut().filter(|v| v.active)
+    
+    /// Get a specific voice's context.
+    pub fn get_voice(&self, id: VoiceId) -> Option<VoiceContext> {
+        self.voices.get(id).map(VoiceContext::from)
+    }
+    
+    /// Number of currently active voices.
+    pub fn active_count(&self) -> usize {
+        self.voices.iter().filter(|v| v.active).count()
     }
 }

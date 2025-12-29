@@ -1,85 +1,35 @@
 // src/main.rs
 
 mod audio_buffer;
+mod bridge;
+mod compile;
 mod engine;
 mod event;
 mod execution_plan;
 mod graph;
+mod modulation;
 mod node;
 mod node_factory;
+mod nodes;
+mod parameter;
 mod plan_handoff;
 mod scheduler;
+mod state;
 mod transport;
 mod voice;
 mod voice_allocator;
 
 use crate::{
+    compile::compile,
     engine::Engine,
     execution_plan::ExecutionPlan,
-    graph::Graph,
-    node::{Node, Polyphony},
-    node_factory::SimpleNodeFactory,
+    node_factory::NodeRegistry,
+    nodes::{node_types, register_standard_nodes},
     plan_handoff::PlanHandoff,
     scheduler::Scheduler,
+    state::GraphDef,
     voice_allocator::VoiceAllocator,
 };
-
-/// ===============================
-/// Test Nodes
-/// ===============================
-
-struct ConstantNode {
-    value: f32,
-}
-
-impl Node for ConstantNode {
-    fn prepare(&mut self, _sample_rate: f64, _max_block: usize) {}
-
-    fn process_slice(
-        &mut self,
-        _slice: &execution_plan::SlicePlan,
-        output: &mut audio_buffer::AudioBuffer,
-    ) -> bool {
-        for ch in 0..output.channels {
-            output.channel_mut(ch).fill(self.value);
-        }
-        false
-    }
-
-    fn num_channels(&self) -> usize {
-        1
-    }
-
-    fn polyphony(&self) -> Polyphony {
-        Polyphony::Global
-    }
-
-    fn set_param(&mut self, _param_id: u32, _value: f32) {}
-}
-
-struct PassthroughNode;
-
-impl Node for PassthroughNode {
-    fn prepare(&mut self, _sample_rate: f64, _max_block: usize) {}
-
-    fn process_slice(
-        &mut self,
-        _slice: &execution_plan::SlicePlan,
-        _output: &mut audio_buffer::AudioBuffer,
-    ) -> bool {
-        false
-    }
-
-    fn num_channels(&self) -> usize {
-        1
-    }
-
-    fn set_param(&mut self, _param_id: u32, _value: f32) {}
-}
-
-/// ===============================
-/// Main
-/// ===============================
 
 fn main() {
     let sample_rate = 48_000.0;
@@ -88,21 +38,39 @@ fn main() {
     let max_voices = 8;
 
     // --------------------------------
-    // Graph
+    // Setup node registry
     // --------------------------------
+    
+    let mut registry = NodeRegistry::new();
+    register_standard_nodes(&mut registry);
 
-    let mut graph = Graph::new(max_block, max_voices);
-    let node_factory =
-        SimpleNodeFactory::new(|| Box::new(ConstantNode { value: 0.25 }), Polyphony::Global);
-    let passthrough_node_factory =
-        SimpleNodeFactory::new(|| Box::new(PassthroughNode), Polyphony::Global);
+    // --------------------------------
+    // Build declarative graph
+    // --------------------------------
+    
+    let mut graph_def = GraphDef::new();
+    
+    // Create a simple synth: Osc -> Env -> Output
+    let osc = graph_def.add_node(node_types::SINE_OSC);
+    let env = graph_def.add_node(node_types::ADSR_ENV);
+    let out = graph_def.add_node(node_types::OUTPUT);
+    
+    // Wire them up
+    graph_def.connect(osc, 0, env, 0);
+    graph_def.connect(env, 0, out, 0);
+    graph_def.output_node = Some(out);
+    
+    // Set some parameters
+    graph_def.set_param(osc, nodes::params::FREQ, 440.0);
+    graph_def.set_param(env, nodes::params::ATTACK, 0.01);
+    graph_def.set_param(env, nodes::params::RELEASE, 0.5);
 
-    let const_node = graph.add_node(&node_factory);
-    let out_node = graph.add_node(&passthrough_node_factory);
-
-    graph.connect(const_node, out_node);
-    graph.output_node = out_node;
-
+    // --------------------------------
+    // Compile to runtime graph
+    // --------------------------------
+    
+    let mut graph = compile(&graph_def, &registry, max_block, max_voices)
+        .expect("Failed to compile graph");
     graph.prepare(sample_rate);
 
     // --------------------------------
@@ -118,19 +86,18 @@ fn main() {
     // Plan handoff (double buffer)
     // --------------------------------
 
-    let empty_plan = ExecutionPlan {
-        block_start_sample: 0,
-        block_frames: 0,
-        slices: Vec::new(),
-    };
-
-    let mut handoff = PlanHandoff::new(empty_plan.clone(), empty_plan);
+    let mut handoff = PlanHandoff::new(
+        ExecutionPlan::new(sample_rate),
+        ExecutionPlan::new(sample_rate),
+    );
 
     // --------------------------------
     // Run a few blocks
     // --------------------------------
 
-    println!("Starting engine sanity test…");
+    println!("Starting engine test with compiled graph...");
+    println!("Graph: SineOsc -> ADSR -> Output");
+    println!();
 
     for block in 0..4 {
         println!("--- Block {} ---", block);
@@ -147,11 +114,47 @@ fn main() {
         engine.process_plan(plan);
 
         println!(
-            "Processed block @ sample {} ({} slices)",
+            "  Sample: {}, Slices: {}, Active voices: {}",
             plan.block_start_sample,
-            plan.slices.len()
+            plan.slices.len(),
+            engine.active_voices(),
         );
     }
 
-    println!("Sanity test completed.");
+    // Simulate a note on
+    println!();
+    println!("--- Simulating Note On (C4) ---");
+    
+    use crate::event::MusicalEvent;
+    
+    for block in 4..12 {
+        // Send note on at the current beat position (block 4)
+        let block_events: Vec<MusicalEvent> = if block == 4 {
+            vec![MusicalEvent::NoteOn { 
+                beat: scheduler.beat_position(), 
+                note: 60, 
+                velocity: 0.8,
+            }]
+        } else {
+            vec![]
+        };
+        
+        scheduler.compile_block(&mut handoff, block_frames, &block_events);
+        let plan = handoff.read_plan();
+        engine.process_plan(plan);
+        
+        if let Some(output) = engine.output_buffer(block_frames) {
+            let peak: f32 = output.iter().map(|s| s.abs()).fold(0.0, f32::max);
+            println!(
+                "Block {}: sample {}, voices: {}, peak: {:.4}",
+                block,
+                plan.block_start_sample,
+                engine.active_voices(),
+                peak,
+            );
+        }
+    }
+
+    println!();
+    println!("Engine test completed.");
 }
