@@ -1,5 +1,3 @@
-// src/state/arrangement.rs
-//
 // Arrangement, tracks, and scenes for session/arrangement views.
 //
 // This module builds on the unified signal model defined in `clip.rs`

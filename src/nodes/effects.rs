@@ -1,5 +1,3 @@
-// src/nodes/effects.rs
-//
 // Audio effect nodes.
 
 use crate::audio_buffer::AudioBuffer;

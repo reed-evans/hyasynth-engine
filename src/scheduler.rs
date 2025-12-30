@@ -1,5 +1,3 @@
-// src/scheduler.rs
-
 use crate::event::{Event, MusicalEvent};
 use crate::execution_plan::SlicePlan;
 use crate::plan_handoff::PlanHandoff;

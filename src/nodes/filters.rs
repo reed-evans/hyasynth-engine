@@ -1,5 +1,3 @@
-// src/nodes/filters.rs
-//
 // Filter nodes using State Variable Filter (SVF) topology.
 // This provides lowpass, highpass, and bandpass outputs.
 

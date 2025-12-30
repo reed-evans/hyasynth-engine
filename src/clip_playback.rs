@@ -1,5 +1,3 @@
-// src/clip_playback.rs
-//
 // Clip playback engine.
 //
 // This module handles the conversion of playing clips into musical events.

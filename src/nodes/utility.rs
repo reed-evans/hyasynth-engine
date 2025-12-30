@@ -1,5 +1,3 @@
-// src/nodes/utility.rs
-//
 // Utility nodes (output, mixer, etc.)
 
 use crate::audio_buffer::AudioBuffer;

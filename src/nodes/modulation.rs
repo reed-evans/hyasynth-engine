@@ -1,5 +1,3 @@
-// src/nodes/modulation.rs
-//
 // Modulation sources like LFOs.
 
 use crate::audio_buffer::AudioBuffer;

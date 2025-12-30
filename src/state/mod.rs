@@ -1,5 +1,3 @@
-// src/state/mod.rs
-//
 // Declarative state layer for UI interaction.
 //
 // This module contains structures that represent the *desired* state

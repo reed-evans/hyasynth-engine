@@ -1,5 +1,3 @@
-// src/node.rs
-
 use crate::audio_buffer::AudioBuffer;
 use crate::state::AudioPoolId;
 use crate::voice::VoiceContext;

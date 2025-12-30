@@ -1,4 +1,8 @@
-// src/engine.rs
+//! Real-time audio engine core.
+//!
+//! The engine executes precompiled execution plans, processes DSP graphs,
+//! and handles commands from the UI thread. All operations are designed to be
+//! deterministic, allocation-free, and lock-free for real-time safety.
 
 use crate::event::Event;
 use crate::execution_plan::{ExecutionPlan, SlicePlan};

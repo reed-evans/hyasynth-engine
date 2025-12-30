@@ -1,5 +1,3 @@
-// src/node_factory.rs
-
 use std::collections::HashMap;
 
 use crate::node::{Node, Polyphony};

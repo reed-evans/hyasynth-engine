@@ -1,5 +1,3 @@
-// src/nodes/mod.rs
-//
 // Standard node types for the synthesizer.
 
 mod audio_player;

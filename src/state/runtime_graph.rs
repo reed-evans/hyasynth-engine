@@ -1,5 +1,3 @@
-// src/state/runtime_graph.rs
-//
 // Runtime graph compilation.
 //
 // This module handles the transformation from the declarative state

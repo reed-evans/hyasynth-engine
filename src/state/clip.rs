@@ -1,5 +1,3 @@
-// src/state/clip.rs
-//
 // Clip definitions and the unified event model.
 //
 // This module contains the core data structures for representing

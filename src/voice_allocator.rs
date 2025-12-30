@@ -1,4 +1,7 @@
-// src/voice_allocator.rs
+//! Polyphonic voice allocation and management.
+//!
+//! The voice allocator maps MIDI notes to voices, manages voice lifecycles,
+//! and exposes active voices for per-voice processing in the audio graph.
 
 use crate::voice::{Voice, VoiceContext, VoiceId};
 
@@ -39,8 +42,9 @@ impl VoiceAllocator {
             return Some(v.id);
         }
 
-        // TODO: Voice stealing policy
-        // For now, steal the first voice (oldest)
+        // Voice stealing: when all voices are active, steal the oldest one.
+        // A more sophisticated policy could steal voices in release phase first,
+        // or prioritize stealing quieter voices.
         if let Some(v) = self.voices.first_mut() {
             v.note_on(note, velocity);
             return Some(v.id);

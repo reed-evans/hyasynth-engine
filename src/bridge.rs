@@ -1,14 +1,26 @@
-// src/bridge.rs
-//
-// Thread-safe bridge between UI and Engine.
-//
-// This module provides the communication layer that allows the UI thread
-// to safely interact with the real-time audio engine.
-//
-// Architecture:
-// - UI thread owns the Session (declarative state)
-// - Engine thread owns the Engine (runtime state)
-// - Bridge coordinates between them using lock-free queues
+//! Thread-safe bridge between UI and audio engine.
+//!
+//! This module provides the communication layer that allows the UI thread
+//! to safely interact with the real-time audio engine.
+//!
+//! # Architecture
+//!
+//! - **UI thread** owns [`SessionHandle`] with local [`Session`] state
+//! - **Audio thread** owns [`EngineHandle`] with the [`Engine`]
+//! - Communication uses lock-free MPSC channels for commands and atomics for readback
+//!
+//! # Usage
+//!
+//! ```ignore
+//! let (session, engine) = create_bridge(Session::new("My Session"), engine);
+//!
+//! // UI thread: send commands
+//! session.note_on(60, 0.8);
+//!
+//! // Audio thread: process commands and render
+//! engine.process_commands();
+//! engine.process_plan(&plan);
+//! ```
 
 use std::sync::{
     Arc,
@@ -361,10 +373,13 @@ impl SessionHandle {
     }
 
     /// Get the current engine readback state.
+    ///
+    /// Note: `beat_position`, `cpu_load`, and `output_peaks` are not yet implemented.
+    /// They require additional atomic storage in SharedReadback.
     pub fn readback(&self) -> EngineReadback {
         EngineReadback {
             sample_position: self.readback.sample_position.load(Ordering::Relaxed),
-            beat_position: 0.0, // TODO: compute from sample position
+            beat_position: 0.0,
             cpu_load: 0.0,
             active_voices: self.readback.active_voices.load(Ordering::Relaxed) as usize,
             output_peaks: [0.0, 0.0],

@@ -1,4 +1,7 @@
-// src/graph.rs
+//! Audio processing graph with topological sorting and polyphonic voice support.
+//!
+//! The graph owns nodes and their buffers, processes them in dependency order,
+//! and supports both global (shared) and per-voice (polyphonic) processing modes.
 
 use crate::{
     audio_buffer::AudioBuffer,
@@ -7,11 +10,11 @@ use crate::{
     voice_allocator::VoiceAllocator,
 };
 
-/// Storage for one node's buffers
+/// Storage for one node's output buffers.
 pub struct NodeBuffer {
     pub channels: usize,
-    pub max_frames: usize,
     pub data: Vec<f32>,
+    /// Scratch buffer for accumulating per-voice outputs.
     pub temp_voice: Vec<f32>,
 }
 
@@ -20,35 +23,18 @@ impl NodeBuffer {
         let size = channels * max_block;
         Self {
             channels,
-            max_frames: max_block,
             data: vec![0.0; size],
             temp_voice: vec![0.0; size],
         }
     }
 
-    /// Get an AudioBuffer view for the given frame count
+    /// Get a mutable AudioBuffer view for writing output.
     #[inline]
     pub fn as_buffer(&mut self, frames: usize) -> AudioBuffer<'_> {
         AudioBuffer {
             channels: self.channels,
             frames,
             data: &mut self.data[..self.channels * frames],
-        }
-    }
-
-    /// Get a read-only AudioBuffer view
-    #[inline]
-    pub fn as_buffer_ref(&self, frames: usize) -> AudioBuffer<'_> {
-        // Safety: we need a mutable slice for AudioBuffer but we'll only read
-        // This is a design limitation - ideally AudioBuffer would have separate read/write types
-        unsafe {
-            let ptr = self.data.as_ptr() as *mut f32;
-            let slice = std::slice::from_raw_parts_mut(ptr, self.channels * frames);
-            AudioBuffer {
-                channels: self.channels,
-                frames,
-                data: slice,
-            }
         }
     }
 }
@@ -279,11 +265,19 @@ impl Graph {
             }
         }
 
-        // If we didn't process all nodes, there's a cycle
-        // For now, just add remaining nodes (will produce wrong results but won't crash)
-        for i in 0..n {
-            if !processed[i] {
-                result.push(i);
+        // If we didn't process all nodes, there's a cycle in the graph.
+        // This is a graph definition error - cycles should be prevented at the UI level.
+        // We append unprocessed nodes to avoid panicking, but results will be incorrect.
+        let has_cycle = processed.iter().any(|&p| !p);
+        if has_cycle {
+            debug_assert!(
+                false,
+                "Graph contains a cycle - audio output will be incorrect"
+            );
+            for (i, &was_processed) in processed.iter().enumerate() {
+                if !was_processed {
+                    result.push(i);
+                }
             }
         }
 
@@ -335,8 +329,11 @@ impl Graph {
             return;
         }
 
-        // Build input buffer views using raw pointers (borrow checker workaround)
-        // input_scratch already contains the input indices from process_node
+        // SAFETY: We need simultaneous read access to multiple input buffers.
+        // The borrow checker cannot verify that input indices differ from the output index,
+        // but we guarantee this by construction (a node cannot be its own input).
+        // We cast const pointers to mutable only because AudioBuffer requires &mut,
+        // but we only read from input buffers during processing.
         let input_ptrs: Vec<_> = self
             .input_scratch
             .iter()
@@ -384,7 +381,8 @@ impl Graph {
         let channels = buf.channels;
         buf.data[..channels * frames].fill(0.0);
 
-        // Build input buffer views (input_scratch set by process_node)
+        // SAFETY: Same justification as process_global_node - we need simultaneous
+        // read access to input buffers while writing to a separate output buffer.
         let input_ptrs: Vec<_> = self
             .input_scratch
             .iter()

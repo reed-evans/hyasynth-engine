@@ -1,5 +1,3 @@
-// src/state/graph_def.rs
-//
 // Declarative graph definition.
 //
 // This is the "document" representation of the audio graph.

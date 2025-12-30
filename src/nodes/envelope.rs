@@ -1,5 +1,3 @@
-// src/nodes/envelope.rs
-//
 // Envelope generators.
 
 use crate::audio_buffer::AudioBuffer;

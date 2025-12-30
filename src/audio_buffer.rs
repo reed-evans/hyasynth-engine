@@ -1,5 +1,3 @@
-// src/audio_buffer.rs
-
 #[derive(Debug)]
 pub struct AudioBuffer<'a> {
     pub channels: usize,

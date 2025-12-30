@@ -1,5 +1,3 @@
-// src/state/param_info.rs
-//
 // Parameter metadata for UI display and validation.
 
 use std::fmt;

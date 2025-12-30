@@ -1,5 +1,3 @@
-// src/nodes/audio_player.rs
-//
 // Audio Player Node - Plays back audio regions from the audio pool.
 //
 // This node receives audio start/stop commands and plays back

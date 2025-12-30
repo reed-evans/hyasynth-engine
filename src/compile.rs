@@ -1,5 +1,3 @@
-// src/compile.rs
-//
 // Compiles GraphDef (declarative) into Graph (runtime).
 //
 // This is the bridge between the UI's declarative representation

@@ -1,4 +1,8 @@
-// src/execution_plan.rs
+//! Precompiled execution plans for sample-accurate audio processing.
+//!
+//! An [`ExecutionPlan`] represents one audio block worth of work, sliced at event
+//! boundaries for sample-accurate timing. The scheduler produces these plans from
+//! musical time, and the engine consumes them without any allocation.
 
 use crate::event::Event;
 

@@ -1,6 +1,37 @@
-// src/lib.rs
-//
-// Library entry point for FFI consumers (iOS/Swift).
+//! Hyasynth Audio Engine
+//!
+//! A real-time audio synthesis engine designed for iOS/Swift integration.
+//!
+//! # Architecture
+//!
+//! The engine is split into UI-thread and audio-thread components:
+//!
+//! - [`SessionHandle`]: UI-side handle for sending commands and reading state
+//! - [`EngineHandle`]: Audio-side handle that owns the [`Engine`] and processes audio
+//! - [`create_bridge`]: Creates a linked pair of handles for communication
+//!
+//! # Quick Start
+//!
+//! ```ignore
+//! use hyasynth_engine::*;
+//!
+//! // Create session and engine
+//! let graph = Graph::new(512, 16);
+//! let voices = VoiceAllocator::new(16);
+//! let engine = Engine::new(graph, voices);
+//! let session = Session::new("My Synth");
+//!
+//! let (mut session_handle, mut engine_handle) = create_bridge(session, engine);
+//!
+//! // Build a synth graph
+//! let osc = session_handle.add_node(1, 0.0, 0.0);  // Oscillator
+//! let out = session_handle.add_node(100, 0.0, 0.0); // Output
+//! // ... connect and configure
+//! ```
+//!
+//! # FFI
+//!
+//! For iOS/Swift integration, use the [`ffi`] module which provides C-compatible functions.
 
 mod audio_buffer;
 mod bridge;

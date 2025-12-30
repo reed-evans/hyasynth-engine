@@ -45,27 +45,64 @@ typedef struct {
 // Node Type Constants
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Oscillators
 extern const uint32_t NODE_SINE_OSC;
 extern const uint32_t NODE_SAW_OSC;
 extern const uint32_t NODE_SQUARE_OSC;
 extern const uint32_t NODE_TRIANGLE_OSC;
+
+// Envelopes
 extern const uint32_t NODE_ADSR_ENV;
+
+// Effects
 extern const uint32_t NODE_GAIN;
 extern const uint32_t NODE_PAN;
+extern const uint32_t NODE_DELAY;
+extern const uint32_t NODE_REVERB;
+
+// Filters
+extern const uint32_t NODE_LOWPASS;
+extern const uint32_t NODE_HIGHPASS;
+extern const uint32_t NODE_BANDPASS;
+extern const uint32_t NODE_NOTCH;
+
+// Modulators
+extern const uint32_t NODE_LFO;
+
+// Utility
 extern const uint32_t NODE_OUTPUT;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Parameter ID Constants
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Oscillator params
 extern const uint32_t PARAM_FREQ;
 extern const uint32_t PARAM_DETUNE;
+
+// Envelope params
 extern const uint32_t PARAM_ATTACK;
 extern const uint32_t PARAM_DECAY;
 extern const uint32_t PARAM_SUSTAIN;
 extern const uint32_t PARAM_RELEASE;
+
+// Gain/mixer params
 extern const uint32_t PARAM_GAIN;
 extern const uint32_t PARAM_PAN;
+
+// Filter params
+extern const uint32_t PARAM_CUTOFF;
+extern const uint32_t PARAM_RESONANCE;
+
+// LFO params
+extern const uint32_t PARAM_RATE;
+extern const uint32_t PARAM_DEPTH;
+
+// Effect params
+extern const uint32_t PARAM_TIME;
+extern const uint32_t PARAM_FEEDBACK;
+extern const uint32_t PARAM_MIX;
+extern const uint32_t PARAM_DAMPING;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Registry Functions
@@ -82,16 +119,49 @@ void registry_destroy(HyasynthRegistry* registry);
 uint32_t registry_count(const HyasynthRegistry* registry);
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Configuration
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Configuration for creating a session and engine.
+typedef struct {
+    /// Maximum audio block size in frames (e.g., 512, 1024).
+    uint32_t max_block_size;
+    /// Maximum number of simultaneous voices for polyphony.
+    uint32_t max_voices;
+    /// Sample rate in Hz (e.g., 44100.0, 48000.0).
+    double sample_rate;
+} HyasynthConfig;
+
+/// Get the default configuration values.
+/// Default: 512 max block, 16 voices, 48000 Hz sample rate.
+HyasynthConfig hyasynth_default_config(void);
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Session/Engine Lifecycle
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Create a new session and engine pair.
-/// 
+/// Create a new session and engine pair with default configuration.
+///
+/// This is a convenience wrapper using default values
+/// (512 max block, 16 voices, 48kHz sample rate).
+///
 /// @param name Session name (UTF-8, null-terminated). Pass NULL for "Untitled".
 /// @param out_engine Pointer to receive the engine handle.
 /// @return The session handle.
 HyasynthSession* session_create(
     const char* name,
+    HyasynthEngine** out_engine
+);
+
+/// Create a new session and engine pair with custom configuration.
+///
+/// @param name Session name (UTF-8, null-terminated). Pass NULL for "Untitled".
+/// @param config Configuration struct. Pass NULL for defaults.
+/// @param out_engine Pointer to receive the engine handle.
+/// @return The session handle.
+HyasynthSession* session_create_with_config(
+    const char* name,
+    const HyasynthConfig* config,
     HyasynthEngine** out_engine
 );
 
@@ -227,6 +297,224 @@ void engine_update_voices(HyasynthEngine* engine, uint32_t count);
 
 /// Set the running state (called from audio thread).
 void engine_set_running(HyasynthEngine* engine, bool running);
+
+/// Process all pending commands from the UI thread.
+/// Call this at the start of each audio render callback.
+/// Returns true if any command requires graph recompilation.
+bool engine_process_commands(HyasynthEngine* engine);
+
+/// Render audio frames to separate left/right channel buffers.
+///
+/// @param engine The engine handle
+/// @param frames Number of frames to render
+/// @param output_left Pointer to left channel buffer (must have space for `frames` floats)
+/// @param output_right Pointer to right channel buffer (must have space for `frames` floats)
+void engine_render(
+    HyasynthEngine* engine,
+    uint32_t frames,
+    float* output_left,
+    float* output_right
+);
+
+/// Render audio to an interleaved stereo buffer.
+/// Output format: [L0, R0, L1, R1, L2, R2, ...]
+///
+/// @param engine The engine handle
+/// @param frames Number of frames to render
+/// @param output Pointer to interleaved buffer (must have space for `frames * 2` floats)
+void engine_render_interleaved(
+    HyasynthEngine* engine,
+    uint32_t frames,
+    float* output
+);
+
+/// Check if the engine is currently playing.
+bool engine_is_playing(const HyasynthEngine* engine);
+
+/// Get the current tempo in BPM.
+double engine_get_tempo(const HyasynthEngine* engine);
+
+/// Get the number of active voices.
+uint32_t engine_get_active_voices(const HyasynthEngine* engine);
+
+/// Prepare the engine's graph for processing.
+/// Call this after compiling a new graph and before rendering.
+void engine_prepare(HyasynthEngine* engine, double sample_rate);
+
+/// Reset the engine state (clear buffers, reset oscillators/envelopes).
+/// Call this on transport stop or when seeking.
+void engine_reset(HyasynthEngine* engine);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Graph Compilation
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Compile the session's graph and load it into the engine.
+///
+/// Call this after making structural changes to the graph (adding/removing nodes,
+/// changing connections). This rebuilds the runtime graph from the session's
+/// graph definition.
+///
+/// @param session The session containing the graph definition
+/// @param engine The engine to load the compiled graph into
+/// @param registry The node registry for creating node instances
+/// @param sample_rate Sample rate for preparing the graph
+/// @return true on success, false on compilation error
+bool engine_compile_graph(
+    const HyasynthSession* session,
+    HyasynthEngine* engine,
+    const HyasynthRegistry* registry,
+    double sample_rate
+);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Clips
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Create a new clip. Returns the clip ID.
+uint32_t session_create_clip(HyasynthSession* session, const char* name, double length);
+
+/// Delete a clip.
+void session_delete_clip(HyasynthSession* session, uint32_t clip_id);
+
+/// Add a note to a clip.
+void session_add_note_to_clip(
+    HyasynthSession* session,
+    uint32_t clip_id,
+    double start,
+    double duration,
+    uint8_t note,
+    float velocity
+);
+
+/// Clear all notes from a clip.
+void session_clear_clip(HyasynthSession* session, uint32_t clip_id);
+
+/// Get the number of notes in a clip.
+uint32_t session_get_clip_note_count(const HyasynthSession* session, uint32_t clip_id);
+
+/// Get the number of audio regions in a clip.
+uint32_t session_get_clip_audio_count(const HyasynthSession* session, uint32_t clip_id);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Audio Pool
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Add audio samples to the pool.
+/// Returns the audio pool ID.
+uint32_t session_add_audio_to_pool(
+    HyasynthSession* session,
+    const char* name,
+    double sample_rate,
+    uint32_t channels,
+    const float* samples,
+    uint32_t num_samples
+);
+
+/// Remove audio from the pool.
+void session_remove_audio_from_pool(HyasynthSession* session, uint32_t audio_id);
+
+/// Add an audio region to a clip.
+void session_add_audio_to_clip(
+    HyasynthSession* session,
+    uint32_t clip_id,
+    double start,
+    double duration,
+    uint32_t audio_id,
+    double source_offset,
+    float gain
+);
+
+/// Create a clip from audio in the pool.
+/// Returns the clip ID, or UINT32_MAX on failure.
+uint32_t session_create_clip_from_audio(
+    HyasynthSession* session,
+    uint32_t audio_id,
+    double bpm
+);
+
+/// Get the number of audio entries in the pool.
+uint32_t session_get_audio_pool_count(const HyasynthSession* session);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Tracks
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Create a new track. Returns the track ID.
+uint32_t session_create_track(HyasynthSession* session, const char* name);
+
+/// Delete a track.
+void session_delete_track(HyasynthSession* session, uint32_t track_id);
+
+/// Set track volume (0.0 - 1.0).
+void session_set_track_volume(HyasynthSession* session, uint32_t track_id, float volume);
+
+/// Set track pan (-1.0 to 1.0).
+void session_set_track_pan(HyasynthSession* session, uint32_t track_id, float pan);
+
+/// Set track mute.
+void session_set_track_mute(HyasynthSession* session, uint32_t track_id, bool mute);
+
+/// Set track solo.
+void session_set_track_solo(HyasynthSession* session, uint32_t track_id, bool solo);
+
+/// Set track target node.
+void session_set_track_target(HyasynthSession* session, uint32_t track_id, uint32_t node_id);
+
+/// Get the number of tracks.
+uint32_t session_get_track_count(const HyasynthSession* session);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Scenes
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Create a new scene. Returns the scene ID.
+uint32_t session_create_scene(HyasynthSession* session, const char* name);
+
+/// Delete a scene.
+void session_delete_scene(HyasynthSession* session, uint32_t scene_id);
+
+/// Launch a scene (trigger all clips in that row).
+void session_launch_scene(HyasynthSession* session, uint32_t scene_index);
+
+/// Launch a single clip on a track.
+void session_launch_clip(HyasynthSession* session, uint32_t track_id, uint32_t clip_id);
+
+/// Stop a clip on a track.
+void session_stop_clip(HyasynthSession* session, uint32_t track_id);
+
+/// Stop all clips.
+void session_stop_all_clips(HyasynthSession* session);
+
+/// Get the number of scenes.
+uint32_t session_get_scene_count(const HyasynthSession* session);
+
+/// Assign a clip to a track's clip slot.
+void session_set_clip_slot(
+    HyasynthSession* session,
+    uint32_t track_id,
+    uint32_t scene_index,
+    uint32_t clip_id
+);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Timeline
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Schedule a clip on the timeline.
+void session_schedule_clip(
+    HyasynthSession* session,
+    uint32_t track_id,
+    uint32_t clip_id,
+    double start_beat
+);
+
+/// Remove a clip placement from the timeline.
+void session_remove_clip_placement(
+    HyasynthSession* session,
+    uint32_t track_id,
+    double start_beat
+);
 
 #ifdef __cplusplus
 }

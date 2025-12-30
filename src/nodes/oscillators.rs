@@ -1,5 +1,3 @@
-// src/nodes/oscillators.rs
-//
 // Basic oscillator nodes.
 
 use std::f32::consts::TAU;

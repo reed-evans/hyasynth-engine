@@ -1,5 +1,3 @@
-// src/state/command.rs
-//
 // Commands from UI to Engine.
 //
 // Commands are the ONLY way the UI can mutate engine state.
@@ -231,32 +229,4 @@ pub enum CommandResult {
 
     /// Command failed.
     Error { message: String },
-}
-
-/// Batch of commands to apply atomically.
-#[derive(Debug, Clone, Default)]
-pub struct CommandBatch {
-    pub commands: Vec<Command>,
-}
-
-impl CommandBatch {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn push(&mut self, cmd: Command) {
-        self.commands.push(cmd);
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.commands.is_empty()
-    }
-}
-
-impl FromIterator<Command> for CommandBatch {
-    fn from_iter<T: IntoIterator<Item = Command>>(iter: T) -> Self {
-        Self {
-            commands: iter.into_iter().collect(),
-        }
-    }
 }

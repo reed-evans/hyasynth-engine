@@ -1,5 +1,3 @@
-// src/voice.rs
-
 pub type VoiceId = usize;
 
 /// A voice represents one active note / execution context.

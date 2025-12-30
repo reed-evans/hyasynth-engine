@@ -119,16 +119,49 @@ void registry_destroy(HyasynthRegistry* registry);
 uint32_t registry_count(const HyasynthRegistry* registry);
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Configuration
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Configuration for creating a session and engine.
+typedef struct {
+    /// Maximum audio block size in frames (e.g., 512, 1024).
+    uint32_t max_block_size;
+    /// Maximum number of simultaneous voices for polyphony.
+    uint32_t max_voices;
+    /// Sample rate in Hz (e.g., 44100.0, 48000.0).
+    double sample_rate;
+} HyasynthConfig;
+
+/// Get the default configuration values.
+/// Default: 512 max block, 16 voices, 48000 Hz sample rate.
+HyasynthConfig hyasynth_default_config(void);
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Session/Engine Lifecycle
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Create a new session and engine pair.
-/// 
+/// Create a new session and engine pair with default configuration.
+///
+/// This is a convenience wrapper using default values
+/// (512 max block, 16 voices, 48kHz sample rate).
+///
 /// @param name Session name (UTF-8, null-terminated). Pass NULL for "Untitled".
 /// @param out_engine Pointer to receive the engine handle.
 /// @return The session handle.
 HyasynthSession* session_create(
     const char* name,
+    HyasynthEngine** out_engine
+);
+
+/// Create a new session and engine pair with custom configuration.
+///
+/// @param name Session name (UTF-8, null-terminated). Pass NULL for "Untitled".
+/// @param config Configuration struct. Pass NULL for defaults.
+/// @param out_engine Pointer to receive the engine handle.
+/// @return The session handle.
+HyasynthSession* session_create_with_config(
+    const char* name,
+    const HyasynthConfig* config,
     HyasynthEngine** out_engine
 );
 

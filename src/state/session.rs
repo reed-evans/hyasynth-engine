@@ -1,5 +1,3 @@
-// src/state/session.rs
-//
 // Session/Project state.
 //
 // The Session represents the complete state of a project.

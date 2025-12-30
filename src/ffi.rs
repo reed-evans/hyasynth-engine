@@ -1,5 +1,3 @@
-// src/ffi.rs
-//
 // C-compatible FFI bindings for Swift/iOS integration.
 //
 // Safety requirements:
@@ -131,16 +129,62 @@ pub unsafe extern "C" fn registry_count(registry: *const HyasynthRegistry) -> u3
 // Session/Engine Creation
 // ═══════════════════════════════════════════════════════════════════════════
 
-/// Create a new session and engine pair.
+/// Configuration for creating a session and engine.
+#[repr(C)]
+pub struct HyasynthConfig {
+    /// Maximum audio block size in frames (e.g., 512, 1024).
+    pub max_block_size: u32,
+    /// Maximum number of simultaneous voices for polyphony.
+    pub max_voices: u32,
+    /// Sample rate in Hz (e.g., 44100.0, 48000.0).
+    pub sample_rate: f64,
+}
+
+impl Default for HyasynthConfig {
+    fn default() -> Self {
+        Self {
+            max_block_size: DEFAULT_MAX_BLOCK as u32,
+            max_voices: DEFAULT_MAX_VOICES as u32,
+            sample_rate: DEFAULT_SAMPLE_RATE,
+        }
+    }
+}
+
+/// Get the default configuration values.
+#[unsafe(no_mangle)]
+pub extern "C" fn hyasynth_default_config() -> HyasynthConfig {
+    HyasynthConfig::default()
+}
+
+/// Create a new session and engine pair with default configuration.
 ///
-/// Returns a session handle. The engine handle is stored internally and can
-/// be retrieved with `session_take_engine`.
+/// This is a convenience wrapper around `session_create_with_config` using
+/// default values (512 max block, 16 voices, 48kHz sample rate).
 ///
 /// # Safety
-/// `name` must be a valid null-terminated UTF-8 string.
+/// `name` must be a valid null-terminated UTF-8 string or NULL.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn session_create(
     name: *const c_char,
+    out_engine: *mut *mut HyasynthEngine,
+) -> *mut HyasynthSession {
+    let config = HyasynthConfig::default();
+    unsafe { session_create_with_config(name, &config, out_engine) }
+}
+
+/// Create a new session and engine pair with custom configuration.
+///
+/// Returns a session handle. The engine handle is returned via `out_engine`.
+/// Both handles must be destroyed with their respective destroy functions.
+///
+/// # Safety
+/// - `name` must be a valid null-terminated UTF-8 string or NULL
+/// - `config` must be a valid pointer to a HyasynthConfig struct
+/// - `out_engine` must be a valid pointer to store the engine handle
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn session_create_with_config(
+    name: *const c_char,
+    config: *const HyasynthConfig,
     out_engine: *mut *mut HyasynthEngine,
 ) -> *mut HyasynthSession {
     let name_str = if name.is_null() {
@@ -154,11 +198,19 @@ pub unsafe extern "C" fn session_create(
         }
     };
 
+    // Use provided config or defaults
+    let cfg = if config.is_null() {
+        HyasynthConfig::default()
+    } else {
+        unsafe { std::ptr::read(config) }
+    };
+
     let session = Session::new(name_str);
 
-    // Create an empty graph and engine
-    let graph = Graph::new(DEFAULT_MAX_BLOCK, DEFAULT_MAX_VOICES);
-    let voices = VoiceAllocator::new(DEFAULT_MAX_VOICES);
+    // Create graph and engine with configured parameters
+    let mut graph = Graph::new(cfg.max_block_size as usize, cfg.max_voices as usize);
+    graph.prepare(cfg.sample_rate);
+    let voices = VoiceAllocator::new(cfg.max_voices as usize);
     let engine = Engine::new(graph, voices);
 
     let (session_handle, engine_handle) = create_bridge(session, engine);
