@@ -3,7 +3,9 @@
 use crate::event::Event;
 use crate::execution_plan::{ExecutionPlan, SlicePlan};
 use crate::graph::Graph;
+use crate::state::Command;
 use crate::voice_allocator::VoiceAllocator;
+use crate::bridge::EngineHandle;
 
 /// Real-time audio engine.
 ///
@@ -19,6 +21,12 @@ pub struct Engine {
 
     /// Current sample position
     sample_pos: u64,
+
+    /// Whether playback is active
+    playing: bool,
+
+    /// Current tempo in BPM
+    bpm: f64,
 }
 
 impl Engine {
@@ -27,7 +35,21 @@ impl Engine {
             graph,
             voices,
             sample_pos: 0,
+            playing: false,
+            bpm: 120.0,
         }
+    }
+
+    /// Check if the engine is currently playing.
+    #[inline]
+    pub fn is_playing(&self) -> bool {
+        self.playing
+    }
+
+    /// Get the current tempo.
+    #[inline]
+    pub fn bpm(&self) -> f64 {
+        self.bpm
     }
 
     /// Execute a precompiled execution plan.
@@ -131,5 +153,169 @@ impl Engine {
     /// Get active voice count
     pub fn active_voices(&self) -> usize {
         self.voices.active_count()
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Command Processing
+    // ═══════════════════════════════════════════════════════════════════
+
+    /// Process a command from the UI.
+    ///
+    /// Returns `true` if the command was fully handled, `false` if it requires
+    /// additional action (like graph recompilation) that cannot be done on the
+    /// audio thread.
+    ///
+    /// Real-time safe for most commands. Graph structure changes return `false`
+    /// and must be handled by recompiling the graph on a non-RT thread.
+    pub fn process_command(&mut self, cmd: &Command) -> bool {
+        match cmd {
+            // ═══════════════════════════════════════════════════════════
+            // Parameter changes - RT safe
+            // ═══════════════════════════════════════════════════════════
+            Command::SetParam {
+                node_id,
+                param_id,
+                value,
+            } => {
+                self.graph.set_param(*node_id as usize, *param_id, *value);
+                true
+            }
+
+            Command::BeginParamGesture { .. } | Command::EndParamGesture { .. } => {
+                // Gestures are for automation recording, not RT processing
+                true
+            }
+
+            // ═══════════════════════════════════════════════════════════
+            // Transport - RT safe
+            // ═══════════════════════════════════════════════════════════
+            Command::Play => {
+                self.playing = true;
+                true
+            }
+
+            Command::Stop => {
+                self.playing = false;
+                self.reset();
+                true
+            }
+
+            Command::SetTempo { bpm } => {
+                self.bpm = *bpm;
+                true
+            }
+
+            Command::Seek { beat: _ } => {
+                // Seek requires coordination with the scheduler.
+                // Reset the engine state; the scheduler handles position.
+                self.reset();
+                true
+            }
+
+            // ═══════════════════════════════════════════════════════════
+            // MIDI - RT safe
+            // ═══════════════════════════════════════════════════════════
+            Command::NoteOn { note, velocity } => {
+                self.voices.note_on(*note, *velocity);
+                true
+            }
+
+            Command::NoteOff { note } => {
+                self.voices.note_off(*note);
+                true
+            }
+
+            // ═══════════════════════════════════════════════════════════
+            // Graph structure - NOT RT safe, requires recompilation
+            // ═══════════════════════════════════════════════════════════
+            Command::AddNode { .. }
+            | Command::AddNodeDef { .. }
+            | Command::RemoveNode { .. }
+            | Command::Connect { .. }
+            | Command::Disconnect { .. }
+            | Command::SetOutputNode { .. }
+            | Command::ClearGraph
+            | Command::LoadConnections { .. }
+            | Command::RecompileGraph => {
+                // These commands modify graph structure.
+                // The caller must recompile the graph from the updated GraphDef
+                // and swap in the new graph.
+                false
+            }
+
+            // ═══════════════════════════════════════════════════════════
+            // Session-only commands - no engine action needed
+            // ═══════════════════════════════════════════════════════════
+            Command::MoveNode { .. } => {
+                // UI position only, doesn't affect audio
+                true
+            }
+
+            // Clip commands - handled by session state
+            Command::CreateClip { .. }
+            | Command::DeleteClip { .. }
+            | Command::AddNoteToClip { .. }
+            | Command::RemoveNoteFromClip { .. }
+            | Command::ClearClip { .. }
+            | Command::SetClipLength { .. }
+            | Command::SetClipLooping { .. } => true,
+
+            // Track commands - handled by session state
+            Command::CreateTrack { .. }
+            | Command::DeleteTrack { .. }
+            | Command::SetTrackVolume { .. }
+            | Command::SetTrackPan { .. }
+            | Command::SetTrackMute { .. }
+            | Command::SetTrackSolo { .. }
+            | Command::SetTrackArmed { .. }
+            | Command::SetTrackTarget { .. }
+            | Command::SetClipSlot { .. } => true,
+
+            // Scene commands - handled by session state
+            Command::CreateScene { .. }
+            | Command::DeleteScene { .. }
+            | Command::LaunchScene { .. }
+            | Command::LaunchClip { .. }
+            | Command::StopClip { .. }
+            | Command::StopAllClips => true,
+
+            // Timeline commands - handled by session state
+            Command::ScheduleClip { .. } | Command::RemoveClipPlacement { .. } => true,
+
+            // Compilation commands - sync handled elsewhere
+            Command::SyncTrackParams { .. } | Command::SyncAllTrackParams => true,
+        }
+    }
+
+    /// Process all pending commands from an EngineHandle.
+    ///
+    /// Returns `true` if any command requires graph recompilation.
+    /// The caller should check this and trigger recompilation if needed.
+    pub fn process_commands(&mut self, handle: &EngineHandle) -> bool {
+        let mut needs_recompile = false;
+
+        for cmd in handle.drain_commands() {
+            needs_recompile |= !self.process_command(&cmd)
+        }
+
+        needs_recompile
+    }
+
+    /// Replace the current graph with a new one.
+    ///
+    /// Call this after recompiling the graph from an updated GraphDef.
+    /// The new graph should already be prepared (call `graph.prepare(sample_rate)`).
+    pub fn swap_graph(&mut self, new_graph: Graph) {
+        self.graph = new_graph;
+    }
+
+    /// Get a reference to the current graph.
+    pub fn graph(&self) -> &Graph {
+        &self.graph
+    }
+
+    /// Get a mutable reference to the current graph.
+    pub fn graph_mut(&mut self) -> &mut Graph {
+        &mut self.graph
     }
 }
