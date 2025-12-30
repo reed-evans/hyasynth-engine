@@ -119,7 +119,9 @@ impl NodeRegistry {
     pub fn by_category(&self) -> HashMap<&str, Vec<&NodeTypeInfo>> {
         let mut map: HashMap<&str, Vec<&NodeTypeInfo>> = HashMap::new();
         for entry in self.entries.values() {
-            map.entry(&entry.info.category).or_default().push(&entry.info);
+            map.entry(&entry.info.category)
+                .or_default()
+                .push(&entry.info);
         }
         map
     }

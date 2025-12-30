@@ -67,12 +67,13 @@ pub fn compile(
     for &node_id in &node_ids {
         let node_def = def.nodes.get(&node_id).unwrap();
 
-        let factory = registry
-            .get_factory(node_def.type_id)
-            .ok_or(CompileError::UnknownNodeType {
-                node_id,
-                type_id: node_def.type_id,
-            })?;
+        let factory =
+            registry
+                .get_factory(node_def.type_id)
+                .ok_or(CompileError::UnknownNodeType {
+                    node_id,
+                    type_id: node_def.type_id,
+                })?;
 
         let idx = graph.add_node(factory);
         id_to_index.insert(node_id, idx);
@@ -93,12 +94,13 @@ pub fn compile(
         if !sources.contains(&conn.source_node) {
             sources.push(conn.source_node);
 
-            let src_idx = id_to_index.get(&conn.source_node).ok_or(
-                CompileError::InvalidConnection {
-                    source: conn.source_node,
-                    dest: conn.dest_node,
-                },
-            )?;
+            let src_idx =
+                id_to_index
+                    .get(&conn.source_node)
+                    .ok_or(CompileError::InvalidConnection {
+                        source: conn.source_node,
+                        dest: conn.dest_node,
+                    })?;
 
             let dst_idx =
                 id_to_index
@@ -138,7 +140,7 @@ mod tests {
 
     impl Node for TestNode {
         fn prepare(&mut self, _: f64, _: usize) {}
-        
+
         fn process(
             &mut self,
             _ctx: &ProcessContext,
@@ -147,11 +149,11 @@ mod tests {
         ) -> bool {
             true
         }
-        
+
         fn num_channels(&self) -> usize {
             1
         }
-        
+
         fn set_param(&mut self, _: u32, _: f32) {}
     }
 

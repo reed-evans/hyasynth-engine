@@ -12,13 +12,18 @@
 // - Mutations happen through Commands
 // - The engine never directly accesses these structures
 
+mod arrangement;
+mod clip;
 mod command;
 mod graph_def;
 mod param_info;
+mod runtime_graph;
 mod session;
 
+pub use arrangement::*;
+pub use clip::*;
 pub use command::*;
 pub use graph_def::*;
 pub use param_info::*;
+pub use runtime_graph::*;
 pub use session::*;
-

@@ -12,13 +12,13 @@ pub struct Voice {
     pub active: bool,
     pub note: u8,
     pub velocity: f32,
-    
+
     /// Gate is high while note is held
     pub gate: bool,
-    
+
     /// Trigger is high for one block after note-on
     pub trigger: bool,
-    
+
     /// Release is high for one block after note-off  
     pub release: bool,
 }
@@ -36,14 +36,14 @@ impl Voice {
             release: false,
         }
     }
-    
+
     /// Called at start of each block to clear one-shot flags
     #[inline]
     pub fn clear_triggers(&mut self) {
         self.trigger = false;
         self.release = false;
     }
-    
+
     /// Trigger note on
     #[inline]
     pub fn note_on(&mut self, note: u8, velocity: f32) {
@@ -54,14 +54,14 @@ impl Voice {
         self.trigger = true;
         self.release = false;
     }
-    
+
     /// Trigger note off (voice stays active for release phase)
     #[inline]
     pub fn note_off(&mut self) {
         self.gate = false;
         self.release = true;
     }
-    
+
     /// Fully deactivate voice (after release complete)
     #[inline]
     pub fn deactivate(&mut self) {

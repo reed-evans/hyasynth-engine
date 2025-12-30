@@ -12,10 +12,10 @@ use crate::transport::MusicalTransport;
 pub struct Scheduler {
     /// Musical-time transport (beats, tempo, etc.)
     musical_transport: MusicalTransport,
-    
+
     /// Pre-allocated scratch buffer for sorting events
     event_scratch: Vec<(u64, MusicalEvent)>,
-    
+
     /// Pre-allocated scratch for compiled events per slice
     compiled_scratch: Vec<Event>,
 }
@@ -37,10 +37,10 @@ impl Scheduler {
         musical_events: &[MusicalEvent],
     ) {
         let plan = handoff.write_plan();
-        
+
         let block_start_sample = self.musical_transport.sample_position();
         let block_end_sample = block_start_sample + block_frames as u64;
-        
+
         plan.block_start_sample = block_start_sample;
         plan.block_frames = block_frames;
         plan.bpm = self.musical_transport.bpm();
@@ -74,7 +74,7 @@ impl Scheduler {
             // Collect events at current position
             let cursor_sample = block_start_sample + cursor_frame as u64;
             self.compiled_scratch.clear();
-            
+
             while event_index < self.event_scratch.len() {
                 let (event_sample, _) = &self.event_scratch[event_index];
                 if *event_sample == cursor_sample {
@@ -87,13 +87,14 @@ impl Scheduler {
                     break;
                 }
             }
-            
+
             // Find next event boundary (or end of block)
-            let next_boundary_frame = self.event_scratch
+            let next_boundary_frame = self
+                .event_scratch
                 .get(event_index)
                 .map(|(pos, _)| (*pos - block_start_sample) as usize)
                 .unwrap_or(block_frames);
-            
+
             let slice_end_frame = next_boundary_frame.min(block_frames);
             let slice_frames = slice_end_frame - cursor_frame;
 
@@ -138,19 +139,64 @@ impl Scheduler {
 
             MusicalEvent::NoteOff { note, .. } => Some(Event::NoteOff { note: *note }),
 
-            MusicalEvent::ParamChange { node_id, param_id, value, .. } => Some(Event::ParamChange {
+            MusicalEvent::NoteOnTarget {
+                node_id,
+                note,
+                velocity,
+                ..
+            } => Some(Event::NoteOnTarget {
+                node_id: *node_id,
+                note: *note,
+                velocity: *velocity,
+            }),
+
+            MusicalEvent::NoteOffTarget { node_id, note, .. } => {
+                Some(Event::NoteOffTarget {
+                    node_id: *node_id,
+                    note: *note,
+                })
+            }
+
+            MusicalEvent::ParamChange {
+                node_id,
+                param_id,
+                value,
+                ..
+            } => Some(Event::ParamChange {
                 node_id: *node_id,
                 param_id: *param_id,
                 value: *value,
             }),
+
+            MusicalEvent::AudioStart {
+                node_id,
+                audio_id,
+                start_sample,
+                duration_samples,
+                gain,
+                ..
+            } => Some(Event::AudioStart {
+                node_id: *node_id,
+                audio_id: *audio_id,
+                start_sample: *start_sample,
+                duration_samples: *duration_samples,
+                gain: *gain,
+            }),
+
+            MusicalEvent::AudioStop {
+                node_id, audio_id, ..
+            } => Some(Event::AudioStop {
+                node_id: *node_id,
+                audio_id: *audio_id,
+            }),
         }
     }
-    
+
     /// Get current beat position
     pub fn beat_position(&self) -> f64 {
         self.musical_transport.beat_position()
     }
-    
+
     /// Set tempo
     pub fn set_bpm(&mut self, bpm: f64) {
         self.musical_transport.set_bpm(bpm);

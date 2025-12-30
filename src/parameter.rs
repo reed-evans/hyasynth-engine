@@ -32,12 +32,7 @@ impl<'a> Parameter<'a> {
 
     /// Attach a modulation source to a slot
     #[inline]
-    pub fn set_mod(
-        &mut self,
-        slot: usize,
-        signal: ModSignal<'a>,
-        depth: f32,
-    ) {
+    pub fn set_mod(&mut self, slot: usize, signal: ModSignal<'a>, depth: f32) {
         self.mods[slot] = Some(ModulationInput { signal, depth });
     }
 

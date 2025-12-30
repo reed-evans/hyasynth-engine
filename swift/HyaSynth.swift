@@ -1,20 +1,38 @@
-// HyaSynth.swift
+// Hyasynth.swift
 //
-// Swift wrapper for the HyaSynth audio engine.
+// Swift wrapper for the Hyasynth audio engine.
 // This provides a more ergonomic Swift API over the C FFI.
 
-import HyaSynthC
+import HyasynthC
 
 // MARK: - Node Types
 
 public enum NodeType: UInt32 {
+    // Oscillators
     case sineOsc = 1
     case sawOsc = 2
     case squareOsc = 3
     case triangleOsc = 4
+    
+    // Envelopes
     case adsrEnv = 10
+    
+    // Effects
     case gain = 20
     case pan = 21
+    case delay = 23
+    case reverb = 24
+    
+    // Filters
+    case lowpass = 40
+    case highpass = 41
+    case bandpass = 42
+    case notch = 43
+    
+    // Modulators
+    case lfo = 50
+    
+    // Utility
     case output = 100
 }
 
@@ -38,6 +56,29 @@ public enum GainParam: UInt32 {
     case pan = 1
 }
 
+public enum FilterParam: UInt32 {
+    case cutoff = 0
+    case resonance = 1
+}
+
+public enum LfoParam: UInt32 {
+    case rate = 0
+    case depth = 1
+    case waveform = 2
+}
+
+public enum DelayParam: UInt32 {
+    case time = 0
+    case feedback = 1
+    case mix = 2
+}
+
+public enum ReverbParam: UInt32 {
+    case decay = 0
+    case damping = 1
+    case mix = 2
+}
+
 // MARK: - Engine Readback
 
 public struct EngineState {
@@ -52,24 +93,24 @@ public struct EngineState {
 
 // MARK: - Session (UI-side handle)
 
-public final class HyaSynthSession {
+public final class HyasynthSession {
     private var handle: OpaquePointer?
     private var engineHandle: OpaquePointer?
     
     public init(name: String = "Untitled") {
         var engine: OpaquePointer?
         handle = name.withCString { cName in
-            hya_session_create(cName, &engine)
+            session_create(cName, &engine)
         }
         engineHandle = engine
     }
     
     deinit {
         if let engine = engineHandle {
-            hya_engine_destroy(engine)
+            engine_destroy(engine)
         }
         if let session = handle {
-            hya_session_destroy(session)
+            session_destroy(session)
         }
     }
     
@@ -78,41 +119,41 @@ public final class HyaSynthSession {
     @discardableResult
     public func addNode(_ type: NodeType, at position: (x: Float, y: Float) = (0, 0)) -> UInt32 {
         guard let h = handle else { return UInt32.max }
-        return hya_session_add_node(h, type.rawValue, position.x, position.y)
+        return session_add_node(h, type.rawValue, position.x, position.y)
     }
     
     public func removeNode(_ nodeId: UInt32) {
         guard let h = handle else { return }
-        hya_session_remove_node(h, nodeId)
+        session_remove_node(h, nodeId)
     }
     
     public func connect(from sourceNode: UInt32, port sourcePort: UInt32 = 0,
                         to destNode: UInt32, port destPort: UInt32 = 0) {
         guard let h = handle else { return }
-        hya_session_connect(h, sourceNode, sourcePort, destNode, destPort)
+        session_connect(h, sourceNode, sourcePort, destNode, destPort)
     }
     
     public func disconnect(from sourceNode: UInt32, port sourcePort: UInt32 = 0,
                            to destNode: UInt32, port destPort: UInt32 = 0) {
         guard let h = handle else { return }
-        hya_session_disconnect(h, sourceNode, sourcePort, destNode, destPort)
+        session_disconnect(h, sourceNode, sourcePort, destNode, destPort)
     }
     
     public func setOutputNode(_ nodeId: UInt32) {
         guard let h = handle else { return }
-        hya_session_set_output(h, nodeId)
+        session_set_output(h, nodeId)
     }
     
     public func clearGraph() {
         guard let h = handle else { return }
-        hya_session_clear_graph(h)
+        session_clear_graph(h)
     }
     
     // MARK: - Parameters
     
     public func setParam(_ nodeId: UInt32, param: UInt32, value: Float) {
         guard let h = handle else { return }
-        hya_session_set_param(h, nodeId, param, value)
+        session_set_param(h, nodeId, param, value)
     }
     
     public func setOscParam(_ nodeId: UInt32, _ param: OscParam, value: Float) {
@@ -129,57 +170,57 @@ public final class HyaSynthSession {
     
     public func beginGesture(_ nodeId: UInt32, param: UInt32) {
         guard let h = handle else { return }
-        hya_session_begin_gesture(h, nodeId, param)
+        session_begin_gesture(h, nodeId, param)
     }
     
     public func endGesture(_ nodeId: UInt32, param: UInt32) {
         guard let h = handle else { return }
-        hya_session_end_gesture(h, nodeId, param)
+        session_end_gesture(h, nodeId, param)
     }
     
     // MARK: - Transport
     
     public func play() {
         guard let h = handle else { return }
-        hya_session_play(h)
+        session_play(h)
     }
     
     public func stop() {
         guard let h = handle else { return }
-        hya_session_stop(h)
+        session_stop(h)
     }
     
     public var isPlaying: Bool {
         guard let h = handle else { return false }
-        return hya_session_is_playing(h)
+        return session_is_playing(h)
     }
     
     public var tempo: Double {
         get {
             guard let h = handle else { return 120.0 }
-            return hya_session_get_tempo(h)
+            return session_get_tempo(h)
         }
         set {
             guard let h = handle else { return }
-            hya_session_set_tempo(h, newValue)
+            session_set_tempo(h, newValue)
         }
     }
     
     public func seek(toBeat beat: Double) {
         guard let h = handle else { return }
-        hya_session_seek(h, beat)
+        session_seek(h, beat)
     }
     
     // MARK: - MIDI
     
     public func noteOn(_ note: UInt8, velocity: Float = 0.8) {
         guard let h = handle else { return }
-        hya_session_note_on(h, note, velocity)
+        session_note_on(h, note, velocity)
     }
     
     public func noteOff(_ note: UInt8) {
         guard let h = handle else { return }
-        hya_session_note_off(h, note)
+        session_note_off(h, note)
     }
     
     // MARK: - Readback
@@ -196,7 +237,7 @@ public final class HyaSynthSession {
                 isRunning: false
             )
         }
-        let rb = hya_session_get_readback(h)
+        let rb = session_get_readback(h)
         return EngineState(
             samplePosition: rb.sample_position,
             beatPosition: rb.beat_position,
@@ -210,12 +251,12 @@ public final class HyaSynthSession {
     
     public var nodeCount: UInt32 {
         guard let h = handle else { return 0 }
-        return hya_session_node_count(h)
+        return session_node_count(h)
     }
     
     public var outputNode: UInt32? {
         guard let h = handle else { return nil }
-        let id = hya_session_get_output_node(h)
+        let id = session_get_output_node(h)
         return id == UInt32.max ? nil : id
     }
     
@@ -226,11 +267,182 @@ public final class HyaSynthSession {
     public var unsafeEngineHandle: OpaquePointer? {
         return engineHandle
     }
+    
+    // MARK: - Clips
+    
+    @discardableResult
+    public func createClip(name: String = "Clip", length: Double = 4.0) -> UInt32 {
+        guard let h = handle else { return UInt32.max }
+        return name.withCString { session_create_clip(h, $0, length) }
+    }
+    
+    public func deleteClip(_ clipId: UInt32) {
+        guard let h = handle else { return }
+        session_delete_clip(h, clipId)
+    }
+    
+    public func addNote(toClip clipId: UInt32, start: Double, duration: Double, note: UInt8, velocity: Float = 0.8) {
+        guard let h = handle else { return }
+        session_add_note_to_clip(h, clipId, start, duration, note, velocity)
+    }
+    
+    public func clearClip(_ clipId: UInt32) {
+        guard let h = handle else { return }
+        session_clear_clip(h, clipId)
+    }
+    
+    public func getNoteCount(forClip clipId: UInt32) -> UInt32 {
+        guard let h = handle else { return 0 }
+        return session_get_clip_note_count(h, clipId)
+    }
+    
+    public func getAudioCount(forClip clipId: UInt32) -> UInt32 {
+        guard let h = handle else { return 0 }
+        return session_get_clip_audio_count(h, clipId)
+    }
+    
+    // MARK: - Audio Pool
+    
+    /// Add audio samples to the pool.
+    /// Returns the audio pool ID.
+    @discardableResult
+    public func addAudioToPool(name: String, sampleRate: Double, channels: UInt32, samples: [Float]) -> UInt32 {
+        guard let h = handle else { return UInt32.max }
+        return samples.withUnsafeBufferPointer { buffer in
+            name.withCString { cName in
+                session_add_audio_to_pool(h, cName, sampleRate, channels, buffer.baseAddress, UInt32(samples.count))
+            }
+        }
+    }
+    
+    /// Remove audio from the pool.
+    public func removeAudioFromPool(_ audioId: UInt32) {
+        guard let h = handle else { return }
+        session_remove_audio_from_pool(h, audioId)
+    }
+    
+    /// Add an audio region to a clip.
+    public func addAudio(toClip clipId: UInt32, start: Double, duration: Double, audioId: UInt32, offset: Double = 0, gain: Float = 1.0) {
+        guard let h = handle else { return }
+        session_add_audio_to_clip(h, clipId, start, duration, audioId, offset, gain)
+    }
+    
+    /// Create a clip containing the full audio at the current tempo.
+    @discardableResult
+    public func createClipFromAudio(_ audioId: UInt32, bpm: Double = 120.0) -> UInt32? {
+        guard let h = handle else { return nil }
+        let id = session_create_clip_from_audio(h, audioId, bpm)
+        return id == UInt32.max ? nil : id
+    }
+    
+    /// Get the number of audio entries in the pool.
+    public var audioPoolCount: UInt32 {
+        guard let h = handle else { return 0 }
+        return session_get_audio_pool_count(h)
+    }
+    
+    // MARK: - Tracks
+    
+    @discardableResult
+    public func createTrack(name: String = "Track") -> UInt32 {
+        guard let h = handle else { return UInt32.max }
+        return name.withCString { session_create_track(h, $0) }
+    }
+    
+    public func deleteTrack(_ trackId: UInt32) {
+        guard let h = handle else { return }
+        session_delete_track(h, trackId)
+    }
+    
+    public func setTrackVolume(_ trackId: UInt32, volume: Float) {
+        guard let h = handle else { return }
+        session_set_track_volume(h, trackId, volume)
+    }
+    
+    public func setTrackPan(_ trackId: UInt32, pan: Float) {
+        guard let h = handle else { return }
+        session_set_track_pan(h, trackId, pan)
+    }
+    
+    public func setTrackMute(_ trackId: UInt32, mute: Bool) {
+        guard let h = handle else { return }
+        session_set_track_mute(h, trackId, mute)
+    }
+    
+    public func setTrackSolo(_ trackId: UInt32, solo: Bool) {
+        guard let h = handle else { return }
+        session_set_track_solo(h, trackId, solo)
+    }
+    
+    public func setTrackTarget(_ trackId: UInt32, nodeId: UInt32?) {
+        guard let h = handle else { return }
+        session_set_track_target(h, trackId, nodeId ?? UInt32.max)
+    }
+    
+    public var trackCount: UInt32 {
+        guard let h = handle else { return 0 }
+        return session_get_track_count(h)
+    }
+    
+    // MARK: - Scenes
+    
+    @discardableResult
+    public func createScene(name: String = "Scene") -> UInt32 {
+        guard let h = handle else { return UInt32.max }
+        return name.withCString { session_create_scene(h, $0) }
+    }
+    
+    public func deleteScene(_ sceneId: UInt32) {
+        guard let h = handle else { return }
+        session_delete_scene(h, sceneId)
+    }
+    
+    public func launchScene(_ sceneIndex: UInt32) {
+        guard let h = handle else { return }
+        session_launch_scene(h, sceneIndex)
+    }
+    
+    public func launchClip(trackId: UInt32, clipId: UInt32) {
+        guard let h = handle else { return }
+        session_launch_clip(h, trackId, clipId)
+    }
+    
+    public func stopClip(trackId: UInt32) {
+        guard let h = handle else { return }
+        session_stop_clip(h, trackId)
+    }
+    
+    public func stopAllClips() {
+        guard let h = handle else { return }
+        session_stop_all_clips(h)
+    }
+    
+    public var sceneCount: UInt32 {
+        guard let h = handle else { return 0 }
+        return session_get_scene_count(h)
+    }
+    
+    public func setClipSlot(trackId: UInt32, sceneIndex: UInt32, clipId: UInt32?) {
+        guard let h = handle else { return }
+        session_set_clip_slot(h, trackId, sceneIndex, clipId ?? UInt32.max)
+    }
+    
+    // MARK: - Timeline
+    
+    public func scheduleClip(trackId: UInt32, clipId: UInt32, startBeat: Double) {
+        guard let h = handle else { return }
+        session_schedule_clip(h, trackId, clipId, startBeat)
+    }
+    
+    public func removeClipPlacement(trackId: UInt32, startBeat: Double) {
+        guard let h = handle else { return }
+        session_remove_clip_placement(h, trackId, startBeat)
+    }
 }
 
 // MARK: - Convenience Extensions
 
-public extension HyaSynthSession {
+public extension HyasynthSession {
     /// Create a simple synth chain: Oscillator -> Envelope -> Output
     func createSimpleSynth(oscillator: NodeType = .sineOsc) -> (osc: UInt32, env: UInt32, out: UInt32) {
         let osc = addNode(oscillator)

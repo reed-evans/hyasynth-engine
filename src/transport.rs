@@ -142,7 +142,7 @@ impl MusicalTransport {
     pub fn bpm(&self) -> f64 {
         self.bpm
     }
-    
+
     #[inline]
     pub fn sample_rate(&self) -> f64 {
         self.sample_rate
@@ -171,11 +171,7 @@ impl MusicalTransport {
     ///
     /// Returns None if the event occurs before the current position.
     pub fn event_sample_offset(&self, event: &MusicalEvent) -> Option<usize> {
-        let event_beat = match event {
-            MusicalEvent::NoteOn { beat, .. } => *beat,
-            MusicalEvent::NoteOff { beat, .. } => *beat,
-            MusicalEvent::ParamChange { beat, .. } => *beat,
-        };
+        let event_beat = event.beat();
 
         if event_beat < self.beat_pos {
             return None;

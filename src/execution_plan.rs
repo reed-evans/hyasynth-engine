@@ -17,10 +17,10 @@ pub struct ExecutionPlan {
 
     /// Total number of frames in this block
     pub block_frames: usize,
-    
+
     /// Current tempo in BPM
     pub bpm: f64,
-    
+
     /// Sample rate
     pub sample_rate: f64,
 

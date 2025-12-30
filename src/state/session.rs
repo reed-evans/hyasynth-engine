@@ -5,7 +5,7 @@
 // The Session represents the complete state of a project.
 // It can be serialized for save/load.
 
-use super::GraphDef;
+use super::{Arrangement, GraphDef};
 
 /// Transport state visible to the UI.
 #[derive(Debug, Clone, Default)]
@@ -59,6 +59,9 @@ pub struct Session {
     /// The audio graph.
     pub graph: GraphDef,
 
+    /// Arrangement (clips, tracks, scenes).
+    pub arrangement: Arrangement,
+
     /// Transport state (UI mirror of engine transport).
     pub transport: TransportState,
 
@@ -77,6 +80,7 @@ impl Session {
         Self {
             name: name.into(),
             graph: GraphDef::new(),
+            arrangement: Arrangement::new(),
             transport: TransportState::new(),
             sample_rate: 48_000.0,
             max_voices: 8,
@@ -115,4 +119,3 @@ pub struct EngineReadback {
     /// Whether the engine is currently processing.
     pub running: bool,
 }
-

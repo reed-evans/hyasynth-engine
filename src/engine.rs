@@ -16,7 +16,7 @@ pub struct Engine {
 
     /// Voice allocator and active voice set
     voices: VoiceAllocator,
-    
+
     /// Current sample position
     sample_pos: u64,
 }
@@ -36,7 +36,7 @@ impl Engine {
     /// It must not allocate or block.
     pub fn process_plan(&mut self, plan: &ExecutionPlan) {
         self.sample_pos = plan.block_start_sample;
-        
+
         // Clear one-shot voice triggers at block start
         self.voices.clear_triggers();
 
@@ -55,12 +55,8 @@ impl Engine {
 
         // Process the graph for this slice
         let slice_start = self.sample_pos + slice.frame_offset as u64;
-        self.graph.process(
-            slice.frame_count,
-            slice_start,
-            plan.bpm,
-            &self.voices,
-        );
+        self.graph
+            .process(slice.frame_count, slice_start, plan.bpm, &self.voices);
     }
 
     /// Apply a musical event immediately.
@@ -75,25 +71,83 @@ impl Engine {
                 self.voices.note_off(*note);
             }
 
-            Event::ParamChange { node_id, param_id, value } => {
+            Event::NoteOnTarget {
+                node_id,
+                note,
+                velocity,
+            } => {
+                // For targeted notes, we need to route to a specific node.
+                // For now, we broadcast but the node_id could be used for
+                // voice allocation per-instrument in the future.
+                let _ = node_id;
+                self.voices.note_on(*note, *velocity);
+            }
+
+            Event::NoteOffTarget { node_id, note } => {
+                let _ = node_id;
+                self.voices.note_off(*note);
+            }
+
+            Event::ParamChange {
+                node_id,
+                param_id,
+                value,
+            } => {
                 self.graph.set_param(*node_id as usize, *param_id, *value);
+            }
+
+            Event::AudioStart {
+                node_id,
+                audio_id,
+                start_sample,
+                duration_samples,
+                gain,
+            } => {
+                self.graph.start_audio(
+                    *node_id as usize,
+                    *audio_id,
+                    *start_sample,
+                    *duration_samples,
+                    *gain,
+                );
+            }
+
+            Event::AudioStop { node_id, audio_id } => {
+                self.graph.stop_audio(*node_id as usize, *audio_id);
             }
         }
     }
-    
+
     /// Reset the engine (on transport stop/seek)
     pub fn reset(&mut self) {
         self.graph.reset();
     }
-    
+
+    /// Replace the graph (for recompilation).
+    ///
+    /// This swaps in a new graph. The engine will use it on the next
+    /// process call. The old graph is dropped.
+    pub fn set_graph(&mut self, graph: Graph) {
+        self.graph = graph;
+    }
+
+    /// Get a reference to the graph.
+    pub fn graph(&self) -> &Graph {
+        &self.graph
+    }
+
+    /// Get a mutable reference to the graph.
+    pub fn graph_mut(&mut self) -> &mut Graph {
+        &mut self.graph
+    }
+
     /// Get the output buffer after processing
     pub fn output_buffer(&self, frames: usize) -> Option<&[f32]> {
         self.graph.output_buffer(frames)
     }
-    
+
     /// Get active voice count
     pub fn active_voices(&self) -> usize {
         self.voices.active_count()
     }
 }
-

@@ -23,7 +23,7 @@ impl OutputNode {
             master_linear: 1.0,
         }
     }
-    
+
     fn update_linear(&mut self) {
         self.master_linear = 10.0_f32.powf(self.master_db / 20.0);
     }
@@ -48,10 +48,10 @@ impl Node for OutputNode {
             output.clear();
             return true;
         }
-        
+
         // Mix all inputs and apply master gain
         output.clear();
-        
+
         for input in inputs {
             for ch in 0..output.channels.min(input.channels) {
                 let in_ch = input.channel(ch);
@@ -61,7 +61,7 @@ impl Node for OutputNode {
                 }
             }
         }
-        
+
         false
     }
 

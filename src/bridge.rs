@@ -11,9 +11,9 @@
 // - Bridge coordinates between them using lock-free queues
 
 use std::sync::{
+    Arc,
     atomic::{AtomicBool, AtomicU64, Ordering},
     mpsc::{self, Receiver, Sender, TryRecvError},
-    Arc,
 };
 
 use crate::state::{Command, CommandResult, EngineReadback, NodeId, NodeTypeId, Session};
@@ -141,12 +141,9 @@ impl SessionHandle {
                 dest_node,
                 dest_port,
             } => {
-                self.session.graph.connect(
-                    *source_node,
-                    *source_port,
-                    *dest_node,
-                    *dest_port,
-                );
+                self.session
+                    .graph
+                    .connect(*source_node, *source_port, *dest_node, *dest_port);
             }
             Command::Disconnect {
                 source_node,
@@ -154,12 +151,9 @@ impl SessionHandle {
                 dest_node,
                 dest_port,
             } => {
-                self.session.graph.disconnect(
-                    *source_node,
-                    *source_port,
-                    *dest_node,
-                    *dest_port,
-                );
+                self.session
+                    .graph
+                    .disconnect(*source_node, *source_port, *dest_node, *dest_port);
             }
             Command::SetOutputNode { node_id } => {
                 self.session.graph.output_node = Some(*node_id);
@@ -188,7 +182,151 @@ impl SessionHandle {
             Command::ClearGraph => {
                 self.session.graph = Default::default();
             }
-            // Commands that don't affect session state
+            // ═══════════════════════════════════════════════════════════════
+            // Clip commands
+            // ═══════════════════════════════════════════════════════════════
+            Command::CreateClip { name, length } => {
+                self.session.arrangement.create_clip(name, *length);
+            }
+            Command::DeleteClip { clip_id } => {
+                self.session.arrangement.delete_clip(*clip_id);
+            }
+            Command::AddNoteToClip {
+                clip_id,
+                start,
+                duration,
+                note,
+                velocity,
+            } => {
+                use crate::state::NoteDef;
+                self.session.arrangement.add_note_to_clip(
+                    *clip_id,
+                    NoteDef::new(*start, *duration, *note, *velocity),
+                );
+            }
+            Command::RemoveNoteFromClip {
+                clip_id,
+                note_index,
+            } => {
+                if let Some(clip) = self.session.arrangement.get_clip_mut(*clip_id) {
+                    clip.remove_note(*note_index);
+                }
+            }
+            Command::ClearClip { clip_id } => {
+                if let Some(clip) = self.session.arrangement.get_clip_mut(*clip_id) {
+                    clip.clear();
+                }
+            }
+            Command::SetClipLength { clip_id, length } => {
+                if let Some(clip) = self.session.arrangement.get_clip_mut(*clip_id) {
+                    clip.length = *length;
+                }
+            }
+            Command::SetClipLooping { clip_id, looping } => {
+                if let Some(clip) = self.session.arrangement.get_clip_mut(*clip_id) {
+                    clip.looping = *looping;
+                }
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // Track commands
+            // ═══════════════════════════════════════════════════════════════
+            Command::CreateTrack { name } => {
+                self.session.arrangement.create_track(name);
+            }
+            Command::DeleteTrack { track_id } => {
+                self.session.arrangement.delete_track(*track_id);
+            }
+            Command::SetTrackVolume { track_id, volume } => {
+                self.session.arrangement.set_track_volume(*track_id, *volume);
+            }
+            Command::SetTrackPan { track_id, pan } => {
+                self.session.arrangement.set_track_pan(*track_id, *pan);
+            }
+            Command::SetTrackMute { track_id, mute } => {
+                self.session.arrangement.set_track_mute(*track_id, *mute);
+            }
+            Command::SetTrackSolo { track_id, solo } => {
+                self.session.arrangement.set_track_solo(*track_id, *solo);
+            }
+            Command::SetTrackArmed { track_id, armed } => {
+                if let Some(track) = self.session.arrangement.get_track_mut(*track_id) {
+                    track.armed = *armed;
+                }
+            }
+            Command::SetTrackTarget { track_id, node_id } => {
+                self.session
+                    .arrangement
+                    .set_track_target(*track_id, *node_id);
+            }
+            Command::SetClipSlot {
+                track_id,
+                scene_index,
+                clip_id,
+            } => {
+                self.session
+                    .arrangement
+                    .set_clip_slot(*track_id, *scene_index, *clip_id);
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // Scene commands
+            // ═══════════════════════════════════════════════════════════════
+            Command::CreateScene { name } => {
+                self.session.arrangement.create_scene(name);
+            }
+            Command::DeleteScene { scene_id } => {
+                self.session.arrangement.delete_scene(*scene_id);
+            }
+            Command::LaunchScene { scene_index } => {
+                self.session.arrangement.launch_scene(*scene_index);
+            }
+            Command::LaunchClip { track_id, clip_id } => {
+                self.session.arrangement.launch_clip(*track_id, *clip_id);
+            }
+            Command::StopClip { track_id } => {
+                self.session.arrangement.stop_clip(*track_id);
+            }
+            Command::StopAllClips => {
+                self.session.arrangement.stop_all();
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // Timeline commands
+            // ═══════════════════════════════════════════════════════════════
+            Command::ScheduleClip {
+                track_id,
+                clip_id,
+                start_beat,
+            } => {
+                self.session
+                    .arrangement
+                    .schedule_clip(*track_id, *clip_id, *start_beat);
+            }
+            Command::RemoveClipPlacement {
+                track_id,
+                start_beat,
+            } => {
+                self.session
+                    .arrangement
+                    .remove_clip_placement(*track_id, *start_beat);
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // Compilation commands
+            // ═══════════════════════════════════════════════════════════════
+            Command::RecompileGraph => {
+                // Runtime graph is rebuilt on-demand via build_runtime_graph().
+                // This command signals the engine to fetch the new graph.
+            }
+            Command::SyncTrackParams { .. } => {
+                // Parameter sync is computed on-demand via sync_track_params().
+            }
+            Command::SyncAllTrackParams => {
+                // Sync computed on-demand.
+            }
+
+            // Commands that don't affect session state directly
             Command::BeginParamGesture { .. }
             | Command::EndParamGesture { .. }
             | Command::Seek { .. }
@@ -273,6 +411,103 @@ impl SessionHandle {
     pub fn note_off(&mut self, note: u8) {
         self.send(Command::NoteOff { note });
     }
+
+    // ───────────────────────────────────────────────────────────────
+    // Runtime graph methods
+    // ───────────────────────────────────────────────────────────────
+
+    /// Build the complete runtime graph.
+    ///
+    /// This combines user nodes (instruments, effects) with auto-generated
+    /// track mixer nodes and master bus routing.
+    pub fn build_runtime_graph(&self) -> crate::state::GraphDef {
+        self.session.build_runtime_graph()
+    }
+
+    /// Trigger a full graph recompilation on the engine.
+    ///
+    /// Call this after structural changes (adding/removing tracks).
+    pub fn recompile_graph(&mut self) {
+        self.send(Command::RecompileGraph);
+    }
+
+    /// Get parameter updates for a specific track.
+    ///
+    /// Returns (node_id, param_id, value) tuples for the track's mixer nodes.
+    /// Use this for real-time track volume/pan/mute updates.
+    pub fn get_track_param_updates(&self, track_id: crate::state::TrackId) -> Vec<(NodeId, u32, f32)> {
+        self.session.sync_track_params(track_id)
+    }
+
+    /// Sync track parameters to the engine.
+    ///
+    /// Sends SetParam commands for the track's mixer nodes.
+    /// More efficient than full recompilation for volume/pan/mute changes.
+    pub fn sync_track(&mut self, track_id: crate::state::TrackId) {
+        for (node_id, param_id, value) in self.session.sync_track_params(track_id) {
+            self.send(Command::SetParam {
+                node_id,
+                param_id,
+                value,
+            });
+        }
+    }
+
+    /// Sync all track parameters to the engine.
+    pub fn sync_all_tracks(&mut self) {
+        for (node_id, param_id, value) in self.session.sync_all_track_params() {
+            self.send(Command::SetParam {
+                node_id,
+                param_id,
+                value,
+            });
+        }
+    }
+
+    // ───────────────────────────────────────────────────────────────
+    // Track convenience methods
+    // ───────────────────────────────────────────────────────────────
+
+    /// Create a new track and trigger recompilation.
+    pub fn create_track(&mut self, name: impl Into<String>) -> crate::state::TrackId {
+        let name = name.into();
+        let id = self.session.arrangement.create_track(&name);
+        let _ = self.command_tx.send(Command::CreateTrack { name });
+        // Structural change requires recompilation
+        let _ = self.command_tx.send(Command::RecompileGraph);
+        id
+    }
+
+    /// Delete a track and trigger recompilation.
+    pub fn delete_track(&mut self, track_id: crate::state::TrackId) {
+        self.send(Command::DeleteTrack { track_id });
+        self.send(Command::RecompileGraph);
+    }
+
+    /// Set track volume (with automatic parameter sync).
+    pub fn set_track_volume(&mut self, track_id: crate::state::TrackId, volume: f32) {
+        self.send(Command::SetTrackVolume { track_id, volume });
+        self.sync_track(track_id);
+    }
+
+    /// Set track pan (with automatic parameter sync).
+    pub fn set_track_pan(&mut self, track_id: crate::state::TrackId, pan: f32) {
+        self.send(Command::SetTrackPan { track_id, pan });
+        self.sync_track(track_id);
+    }
+
+    /// Set track mute (with automatic parameter sync).
+    pub fn set_track_mute(&mut self, track_id: crate::state::TrackId, mute: bool) {
+        self.send(Command::SetTrackMute { track_id, mute });
+        self.sync_track(track_id);
+    }
+
+    /// Set track target node (the instrument this track routes MIDI to).
+    pub fn set_track_target(&mut self, track_id: crate::state::TrackId, node_id: Option<u32>) {
+        self.send(Command::SetTrackTarget { track_id, node_id });
+        // Routing change requires recompilation
+        self.send(Command::RecompileGraph);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -316,4 +551,3 @@ impl EngineHandle {
         self.readback.running.store(running, Ordering::Relaxed);
     }
 }
-

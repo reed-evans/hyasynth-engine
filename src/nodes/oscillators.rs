@@ -90,7 +90,7 @@ impl Node for SineOsc {
             _ => {}
         }
     }
-    
+
     fn reset(&mut self) {
         self.phase = 0.0;
     }
@@ -176,7 +176,7 @@ impl Node for SawOsc {
             _ => {}
         }
     }
-    
+
     fn reset(&mut self) {
         self.phase = 0.0;
     }
@@ -202,7 +202,7 @@ impl SquareOsc {
             sample_rate: 48_000.0,
         }
     }
-    
+
     #[inline]
     fn effective_freq(&self, voice_note: Option<u8>) -> f32 {
         voice_note
@@ -243,7 +243,11 @@ impl Node for SquareOsc {
 
         let buf = output.channel_mut(0);
         for sample in buf.iter_mut().take(ctx.frames) {
-            *sample = if self.phase < self.pulse_width { 1.0 } else { -1.0 };
+            *sample = if self.phase < self.pulse_width {
+                1.0
+            } else {
+                -1.0
+            };
             self.phase = (self.phase + inc).fract();
         }
 
@@ -261,7 +265,7 @@ impl Node for SquareOsc {
             _ => {}
         }
     }
-    
+
     fn reset(&mut self) {
         self.phase = 0.0;
     }
@@ -285,7 +289,7 @@ impl TriangleOsc {
             sample_rate: 48_000.0,
         }
     }
-    
+
     #[inline]
     fn effective_freq(&self, voice_note: Option<u8>) -> f32 {
         voice_note
@@ -347,7 +351,7 @@ impl Node for TriangleOsc {
             _ => {}
         }
     }
-    
+
     fn reset(&mut self) {
         self.phase = 0.0;
     }

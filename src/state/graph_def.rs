@@ -287,7 +287,9 @@ impl GraphDef {
 
     /// Get connections to a specific node.
     pub fn connections_to(&self, node_id: NodeId) -> impl Iterator<Item = &ConnectionDef> {
-        self.connections.iter().filter(move |c| c.dest_node == node_id)
+        self.connections
+            .iter()
+            .filter(move |c| c.dest_node == node_id)
     }
 
     /// Get connections from a specific node.
@@ -335,4 +337,3 @@ impl NodeTypeRegistry {
         map
     }
 }
-

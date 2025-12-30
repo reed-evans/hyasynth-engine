@@ -38,24 +38,28 @@ impl VoiceAllocator {
             v.note_on(note, velocity);
             return Some(v.id);
         }
-        
+
         // TODO: Voice stealing policy
         // For now, steal the first voice (oldest)
         if let Some(v) = self.voices.first_mut() {
             v.note_on(note, velocity);
             return Some(v.id);
         }
-        
+
         None
     }
 
     /// Release the voice associated with a note-off event.
     pub fn note_off(&mut self, note: u8) {
-        if let Some(v) = self.voices.iter_mut().find(|v| v.active && v.gate && v.note == note) {
+        if let Some(v) = self
+            .voices
+            .iter_mut()
+            .find(|v| v.active && v.gate && v.note == note)
+        {
             v.note_off();
         }
     }
-    
+
     /// Deactivate a voice (called when envelope finishes release).
     pub fn deactivate(&mut self, voice_id: VoiceId) {
         if let Some(v) = self.voices.get_mut(voice_id) {
@@ -70,12 +74,12 @@ impl VoiceAllocator {
             .filter(|v| v.active)
             .map(VoiceContext::from)
     }
-    
+
     /// Get a specific voice's context.
     pub fn get_voice(&self, id: VoiceId) -> Option<VoiceContext> {
         self.voices.get(id).map(VoiceContext::from)
     }
-    
+
     /// Number of currently active voices.
     pub fn active_count(&self) -> usize {
         self.voices.iter().filter(|v| v.active).count()

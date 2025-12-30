@@ -1,4 +1,4 @@
-module HyaSynthC {
+module HyasynthC {
     header "hyasynth.h"
     export *
 }

@@ -23,13 +23,13 @@ enum EnvelopeStage {
 pub struct AdsrEnvelope {
     stage: EnvelopeStage,
     level: f32,
-    
+
     // Parameters (in seconds)
     attack: f32,
     decay: f32,
     sustain: f32, // 0-1 level
     release: f32,
-    
+
     sample_rate: f32,
     release_level: f32,
 }
@@ -47,12 +47,12 @@ impl AdsrEnvelope {
             release_level: 0.0,
         }
     }
-    
+
     #[inline]
     fn process_sample(&mut self) -> f32 {
         match self.stage {
             EnvelopeStage::Idle => 0.0,
-            
+
             EnvelopeStage::Attack => {
                 let rate = 1.0 / (self.attack * self.sample_rate).max(1.0);
                 self.level += rate;
@@ -62,7 +62,7 @@ impl AdsrEnvelope {
                 }
                 self.level
             }
-            
+
             EnvelopeStage::Decay => {
                 let rate = (1.0 - self.sustain) / (self.decay * self.sample_rate).max(1.0);
                 self.level -= rate;
@@ -72,9 +72,9 @@ impl AdsrEnvelope {
                 }
                 self.level
             }
-            
+
             EnvelopeStage::Sustain => self.sustain,
-            
+
             EnvelopeStage::Release => {
                 let rate = self.release_level / (self.release * self.sample_rate).max(1.0);
                 self.level -= rate;
@@ -111,18 +111,21 @@ impl Node for AdsrEnvelope {
                 self.stage = EnvelopeStage::Attack;
                 self.level = 0.0;
             }
-            if voice.release && self.stage != EnvelopeStage::Idle && self.stage != EnvelopeStage::Release {
+            if voice.release
+                && self.stage != EnvelopeStage::Idle
+                && self.stage != EnvelopeStage::Release
+            {
                 self.release_level = self.level;
                 self.stage = EnvelopeStage::Release;
             }
         }
-        
+
         let has_input = !inputs.is_empty();
         let buf = output.channel_mut(0);
-        
+
         for i in 0..ctx.frames {
             let env = self.process_sample();
-            
+
             // If we have input, multiply by envelope
             // Otherwise, output raw envelope value
             buf[i] = if has_input {
@@ -131,7 +134,7 @@ impl Node for AdsrEnvelope {
                 env
             };
         }
-        
+
         self.stage == EnvelopeStage::Idle
     }
 
@@ -148,7 +151,7 @@ impl Node for AdsrEnvelope {
             _ => {}
         }
     }
-    
+
     fn reset(&mut self) {
         self.stage = EnvelopeStage::Idle;
         self.level = 0.0;
