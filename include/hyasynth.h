@@ -265,6 +265,75 @@ void engine_update_voices(HyasynthEngine* engine, uint32_t count);
 /// Set the running state (called from audio thread).
 void engine_set_running(HyasynthEngine* engine, bool running);
 
+/// Process all pending commands from the UI thread.
+/// Call this at the start of each audio render callback.
+/// Returns true if any command requires graph recompilation.
+bool engine_process_commands(HyasynthEngine* engine);
+
+/// Render audio frames to separate left/right channel buffers.
+///
+/// @param engine The engine handle
+/// @param frames Number of frames to render
+/// @param output_left Pointer to left channel buffer (must have space for `frames` floats)
+/// @param output_right Pointer to right channel buffer (must have space for `frames` floats)
+void engine_render(
+    HyasynthEngine* engine,
+    uint32_t frames,
+    float* output_left,
+    float* output_right
+);
+
+/// Render audio to an interleaved stereo buffer.
+/// Output format: [L0, R0, L1, R1, L2, R2, ...]
+///
+/// @param engine The engine handle
+/// @param frames Number of frames to render
+/// @param output Pointer to interleaved buffer (must have space for `frames * 2` floats)
+void engine_render_interleaved(
+    HyasynthEngine* engine,
+    uint32_t frames,
+    float* output
+);
+
+/// Check if the engine is currently playing.
+bool engine_is_playing(const HyasynthEngine* engine);
+
+/// Get the current tempo in BPM.
+double engine_get_tempo(const HyasynthEngine* engine);
+
+/// Get the number of active voices.
+uint32_t engine_get_active_voices(const HyasynthEngine* engine);
+
+/// Prepare the engine's graph for processing.
+/// Call this after compiling a new graph and before rendering.
+void engine_prepare(HyasynthEngine* engine, double sample_rate);
+
+/// Reset the engine state (clear buffers, reset oscillators/envelopes).
+/// Call this on transport stop or when seeking.
+void engine_reset(HyasynthEngine* engine);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Graph Compilation
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Compile the session's graph and load it into the engine.
+///
+/// Call this after making structural changes to the graph (adding/removing nodes,
+/// changing connections). This rebuilds the runtime graph from the session's
+/// graph definition.
+///
+/// @param session The session containing the graph definition
+/// @param engine The engine to load the compiled graph into
+/// @param registry The node registry for creating node instances
+/// @param sample_rate Sample rate for preparing the graph
+/// @return true on success, false on compilation error
+bool engine_compile_graph(
+    const HyasynthSession* session,
+    HyasynthEngine* engine,
+    const HyasynthRegistry* registry,
+    double sample_rate
+);
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Clips
 // ═══════════════════════════════════════════════════════════════════════════

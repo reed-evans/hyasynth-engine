@@ -11,9 +11,17 @@
 use std::ffi::{CStr, c_char, c_void};
 
 use crate::bridge::{EngineHandle, SessionHandle, create_bridge};
+use crate::engine::Engine;
+use crate::graph::Graph;
 use crate::node_factory::NodeRegistry;
 use crate::nodes::register_standard_nodes;
 use crate::state::{EngineReadback, Session};
+use crate::voice_allocator::VoiceAllocator;
+
+// Default audio configuration
+const DEFAULT_MAX_BLOCK: usize = 512;
+const DEFAULT_MAX_VOICES: usize = 16;
+const DEFAULT_SAMPLE_RATE: f64 = 48_000.0;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Opaque Handle Types
@@ -147,7 +155,13 @@ pub unsafe extern "C" fn session_create(
     };
 
     let session = Session::new(name_str);
-    let (session_handle, engine_handle) = create_bridge(session);
+
+    // Create an empty graph and engine
+    let graph = Graph::new(DEFAULT_MAX_BLOCK, DEFAULT_MAX_VOICES);
+    let voices = VoiceAllocator::new(DEFAULT_MAX_VOICES);
+    let engine = Engine::new(graph, voices);
+
+    let (session_handle, engine_handle) = create_bridge(session, engine);
 
     // Output the engine handle
     if !out_engine.is_null() {
@@ -500,7 +514,7 @@ pub unsafe extern "C" fn engine_update_voices(engine: *mut HyasynthEngine, count
     if engine.is_null() {
         return;
     }
-    unsafe { (*engine).inner.update_active_voices(count as usize) };
+    unsafe { (*engine).inner.update_active_voices_readback(count as usize) };
 }
 
 /// Set the running state (called from audio thread).
@@ -510,6 +524,264 @@ pub unsafe extern "C" fn engine_set_running(engine: *mut HyasynthEngine, running
         return;
     }
     unsafe { (*engine).inner.set_running(running) };
+}
+
+/// Process all pending commands from the UI thread.
+///
+/// Call this at the start of each audio render callback.
+/// Returns `true` if any command requires graph recompilation.
+///
+/// # Safety
+/// Must be called from the audio thread. `engine` must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn engine_process_commands(engine: *mut HyasynthEngine) -> bool {
+    if engine.is_null() {
+        return false;
+    }
+    unsafe { (*engine).inner.process_commands() }
+}
+
+/// Render audio frames to the provided output buffer.
+///
+/// This is the main audio rendering function. Call this from your audio callback
+/// after `engine_process_commands`.
+///
+/// Parameters:
+/// - `engine`: The engine handle
+/// - `frames`: Number of frames to render
+/// - `output_left`: Pointer to left channel buffer (must have space for `frames` floats)
+/// - `output_right`: Pointer to right channel buffer (must have space for `frames` floats)
+///
+/// If the engine's output is mono, both buffers receive the same data.
+/// If the engine has no output node or isn't ready, buffers are filled with silence.
+///
+/// # Safety
+/// - Must be called from the audio thread
+/// - Output buffers must be valid and have space for `frames` samples
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn engine_render(
+    engine: *mut HyasynthEngine,
+    frames: u32,
+    output_left: *mut f32,
+    output_right: *mut f32,
+) {
+    let frames = frames as usize;
+
+    // Fill with silence if invalid
+    if engine.is_null() || output_left.is_null() || output_right.is_null() {
+        if !output_left.is_null() {
+            unsafe { std::ptr::write_bytes(output_left, 0, frames) };
+        }
+        if !output_right.is_null() {
+            unsafe { std::ptr::write_bytes(output_right, 0, frames) };
+        }
+        return;
+    }
+
+    let engine = unsafe { &mut (*engine).inner };
+
+    // Create a simple execution plan for this block
+    // In a full implementation, this would come from the Scheduler
+    let plan = crate::execution_plan::ExecutionPlan {
+        block_start_sample: 0, // Would be tracked properly
+        block_frames: frames,
+        bpm: engine.bpm(),
+        sample_rate: DEFAULT_SAMPLE_RATE,
+        slices: vec![crate::execution_plan::SlicePlan::new(0, frames)],
+    };
+
+    // Process the audio
+    engine.process_plan(&plan);
+
+    // Copy output to provided buffers
+    if let Some(output) = engine.output_buffer(frames) {
+        let out_left = unsafe { std::slice::from_raw_parts_mut(output_left, frames) };
+        let out_right = unsafe { std::slice::from_raw_parts_mut(output_right, frames) };
+
+        // Assuming stereo interleaved or stereo planar output
+        // The graph outputs interleaved stereo: [L0, R0, L1, R1, ...]
+        if output.len() >= frames * 2 {
+            // Stereo output - deinterleave
+            for i in 0..frames {
+                out_left[i] = output[i * 2];
+                out_right[i] = output[i * 2 + 1];
+            }
+        } else if output.len() >= frames {
+            // Mono output - copy to both channels
+            out_left.copy_from_slice(&output[..frames]);
+            out_right.copy_from_slice(&output[..frames]);
+        } else {
+            // Not enough output - fill with silence
+            out_left.fill(0.0);
+            out_right.fill(0.0);
+        }
+    } else {
+        // No output buffer - fill with silence
+        let out_left = unsafe { std::slice::from_raw_parts_mut(output_left, frames) };
+        let out_right = unsafe { std::slice::from_raw_parts_mut(output_right, frames) };
+        out_left.fill(0.0);
+        out_right.fill(0.0);
+    }
+
+    // Sync readback state for UI
+    engine.sync_readback();
+}
+
+/// Render audio to an interleaved stereo buffer.
+///
+/// Alternative to `engine_render` for APIs that prefer interleaved format.
+/// Output format: [L0, R0, L1, R1, L2, R2, ...]
+///
+/// # Safety
+/// - `output` must have space for `frames * 2` floats
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn engine_render_interleaved(
+    engine: *mut HyasynthEngine,
+    frames: u32,
+    output: *mut f32,
+) {
+    let frames = frames as usize;
+
+    if engine.is_null() || output.is_null() {
+        if !output.is_null() {
+            unsafe { std::ptr::write_bytes(output, 0, frames * 2) };
+        }
+        return;
+    }
+
+    let engine = unsafe { &mut (*engine).inner };
+
+    let plan = crate::execution_plan::ExecutionPlan {
+        block_start_sample: 0,
+        block_frames: frames,
+        bpm: engine.bpm(),
+        sample_rate: DEFAULT_SAMPLE_RATE,
+        slices: vec![crate::execution_plan::SlicePlan::new(0, frames)],
+    };
+
+    engine.process_plan(&plan);
+
+    let out_slice = unsafe { std::slice::from_raw_parts_mut(output, frames * 2) };
+
+    if let Some(engine_output) = engine.output_buffer(frames) {
+        if engine_output.len() >= frames * 2 {
+            out_slice.copy_from_slice(&engine_output[..frames * 2]);
+        } else if engine_output.len() >= frames {
+            // Mono to stereo
+            for i in 0..frames {
+                out_slice[i * 2] = engine_output[i];
+                out_slice[i * 2 + 1] = engine_output[i];
+            }
+        } else {
+            out_slice.fill(0.0);
+        }
+    } else {
+        out_slice.fill(0.0);
+    }
+
+    engine.sync_readback();
+}
+
+/// Check if the engine is currently playing.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn engine_is_playing(engine: *const HyasynthEngine) -> bool {
+    if engine.is_null() {
+        return false;
+    }
+    unsafe { (*engine).inner.is_playing() }
+}
+
+/// Get the current tempo in BPM.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn engine_get_tempo(engine: *const HyasynthEngine) -> f64 {
+    if engine.is_null() {
+        return 120.0;
+    }
+    unsafe { (*engine).inner.bpm() }
+}
+
+/// Get the number of active voices.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn engine_get_active_voices(engine: *const HyasynthEngine) -> u32 {
+    if engine.is_null() {
+        return 0;
+    }
+    unsafe { (*engine).inner.active_voices() as u32 }
+}
+
+/// Prepare the engine's graph for processing.
+///
+/// Call this after compiling a new graph and before rendering.
+/// Sets up internal buffers and computes the processing order.
+///
+/// # Safety
+/// Should not be called while audio is being rendered.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn engine_prepare(engine: *mut HyasynthEngine, sample_rate: f64) {
+    if engine.is_null() {
+        return;
+    }
+    unsafe { (*engine).inner.engine_mut().graph_mut().prepare(sample_rate) };
+}
+
+/// Reset the engine state.
+///
+/// Clears all buffers and resets oscillators/envelopes to initial state.
+/// Call this on transport stop or when seeking.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn engine_reset(engine: *mut HyasynthEngine) {
+    if engine.is_null() {
+        return;
+    }
+    unsafe { (*engine).inner.reset() };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Graph Compilation
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Compile the session's graph and load it into the engine.
+///
+/// Call this after making structural changes to the graph (adding/removing nodes,
+/// changing connections). This rebuilds the runtime graph from the session's
+/// graph definition.
+///
+/// Parameters:
+/// - `session`: The session containing the graph definition
+/// - `engine`: The engine to load the compiled graph into
+/// - `registry`: The node registry for creating node instances
+/// - `sample_rate`: Sample rate for preparing the graph
+///
+/// Returns `true` on success, `false` on compilation error.
+///
+/// # Safety
+/// Should not be called while audio is being rendered.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn engine_compile_graph(
+    session: *const HyasynthSession,
+    engine: *mut HyasynthEngine,
+    registry: *const HyasynthRegistry,
+    sample_rate: f64,
+) -> bool {
+    if session.is_null() || engine.is_null() || registry.is_null() {
+        return false;
+    }
+
+    let session = unsafe { &(*session).inner };
+    let engine = unsafe { &mut (*engine).inner };
+    let registry = unsafe { &(*registry).inner };
+
+    // Compile the graph from the session's definition
+    let graph_def = session.session().build_runtime_graph();
+
+    match crate::compile::compile(&graph_def, registry, DEFAULT_MAX_BLOCK, DEFAULT_MAX_VOICES) {
+        Ok(mut graph) => {
+            graph.prepare(sample_rate);
+            engine.swap_graph(graph);
+            true
+        }
+        Err(_) => false,
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

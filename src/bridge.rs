@@ -16,6 +16,9 @@ use std::sync::{
     mpsc::{self, Receiver, Sender, TryRecvError},
 };
 
+use crate::engine::Engine;
+use crate::execution_plan::ExecutionPlan;
+use crate::graph::Graph;
 use crate::state::{Command, CommandResult, EngineReadback, NodeId, NodeTypeId, Session};
 
 /// Handle for the UI thread to communicate with the engine.
@@ -36,10 +39,14 @@ pub struct SessionHandle {
     readback: Arc<SharedReadback>,
 }
 
-/// Handle for the audio thread to receive commands.
+/// Handle for the audio thread containing the engine and communication channels.
 ///
-/// This lives on the engine side and processes incoming commands.
+/// This is the primary interface for the audio thread. It owns the Engine
+/// and provides methods to process commands and audio.
 pub struct EngineHandle {
+    /// The audio engine (owned by audio thread).
+    engine: Engine,
+
     /// Channel to receive commands from UI.
     command_rx: Receiver<Command>,
 
@@ -71,7 +78,10 @@ impl SharedReadback {
 }
 
 /// Create a linked pair of handles for UI and Engine communication.
-pub fn create_bridge(session: Session) -> (SessionHandle, EngineHandle) {
+///
+/// The `engine` parameter is the audio engine that will be owned by the
+/// `EngineHandle` and run on the audio thread.
+pub fn create_bridge(session: Session, engine: Engine) -> (SessionHandle, EngineHandle) {
     let (cmd_tx, cmd_rx) = mpsc::channel();
     let (result_tx, result_rx) = mpsc::channel();
     let readback = Arc::new(SharedReadback::new());
@@ -84,6 +94,7 @@ pub fn create_bridge(session: Session) -> (SessionHandle, EngineHandle) {
     };
 
     let engine_handle = EngineHandle {
+        engine,
         command_rx: cmd_rx,
         result_tx,
         readback,
@@ -515,18 +526,27 @@ impl SessionHandle {
 // ═══════════════════════════════════════════════════════════════════
 
 impl EngineHandle {
-    /// Try to receive a command (non-blocking).
+    // ───────────────────────────────────────────────────────────────
+    // Command Processing
+    // ───────────────────────────────────────────────────────────────
+
+    /// Process all pending commands from the UI.
     ///
     /// Call this at the start of each audio block.
-    pub fn try_recv(&self) -> Option<Command> {
-        self.command_rx.try_recv().ok()
+    /// Returns `true` if any command requires graph recompilation.
+    pub fn process_commands(&mut self) -> bool {
+        let mut needs_recompile = false;
+
+        while let Ok(cmd) = self.command_rx.try_recv() {
+            needs_recompile |= !self.engine.process_command(&cmd);
+        }
+
+        needs_recompile
     }
 
-    /// Process all pending commands.
-    ///
-    /// Returns an iterator over all queued commands.
-    pub fn drain_commands(&self) -> impl Iterator<Item = Command> + '_ {
-        std::iter::from_fn(|| self.try_recv())
+    /// Try to receive a single command (non-blocking).
+    pub fn try_recv(&self) -> Option<Command> {
+        self.command_rx.try_recv().ok()
     }
 
     /// Send a result back to the UI.
@@ -534,19 +554,102 @@ impl EngineHandle {
         let _ = self.result_tx.send(result);
     }
 
-    /// Update the sample position (called every block).
+    // ───────────────────────────────────────────────────────────────
+    // Audio Processing (delegates to Engine)
+    // ───────────────────────────────────────────────────────────────
+
+    /// Execute a precompiled execution plan.
+    ///
+    /// Call this once per audio block from the audio callback.
+    #[inline]
+    pub fn process_plan(&mut self, plan: &ExecutionPlan) {
+        self.engine.process_plan(plan);
+    }
+
+    /// Get the output buffer after processing.
+    #[inline]
+    pub fn output_buffer(&self, frames: usize) -> Option<&[f32]> {
+        self.engine.output_buffer(frames)
+    }
+
+    /// Reset the engine (on transport stop/seek).
+    pub fn reset(&mut self) {
+        self.engine.reset();
+    }
+
+    // ───────────────────────────────────────────────────────────────
+    // Engine State Access
+    // ───────────────────────────────────────────────────────────────
+
+    /// Check if the engine is currently playing.
+    #[inline]
+    pub fn is_playing(&self) -> bool {
+        self.engine.is_playing()
+    }
+
+    /// Get the current tempo.
+    #[inline]
+    pub fn bpm(&self) -> f64 {
+        self.engine.bpm()
+    }
+
+    /// Get active voice count.
+    #[inline]
+    pub fn active_voices(&self) -> usize {
+        self.engine.active_voices()
+    }
+
+    /// Get a reference to the engine.
+    pub fn engine(&self) -> &Engine {
+        &self.engine
+    }
+
+    /// Get a mutable reference to the engine.
+    pub fn engine_mut(&mut self) -> &mut Engine {
+        &mut self.engine
+    }
+
+    // ───────────────────────────────────────────────────────────────
+    // Graph Management
+    // ───────────────────────────────────────────────────────────────
+
+    /// Replace the current graph with a new one.
+    ///
+    /// Call this after recompiling the graph from an updated GraphDef.
+    /// The new graph should already be prepared (call `graph.prepare(sample_rate)`).
+    pub fn swap_graph(&mut self, new_graph: Graph) {
+        self.engine.swap_graph(new_graph);
+    }
+
+    // ───────────────────────────────────────────────────────────────
+    // Readback Updates (for UI synchronization)
+    // ───────────────────────────────────────────────────────────────
+
+    /// Update the sample position readback (called every block).
     pub fn update_sample_position(&self, pos: u64) {
         self.readback.sample_position.store(pos, Ordering::Relaxed);
     }
 
-    /// Update the active voice count.
-    pub fn update_active_voices(&self, count: usize) {
+    /// Update the active voice count readback.
+    pub fn update_active_voices_readback(&self, count: usize) {
         self.readback
             .active_voices
             .store(count as u64, Ordering::Relaxed);
     }
 
-    /// Set the running state.
+    /// Sync readback state from engine.
+    ///
+    /// Call this at the end of each audio block to update UI-visible state.
+    pub fn sync_readback(&self) {
+        self.readback
+            .active_voices
+            .store(self.engine.active_voices() as u64, Ordering::Relaxed);
+        self.readback
+            .running
+            .store(self.engine.is_playing(), Ordering::Relaxed);
+    }
+
+    /// Set the running state readback.
     pub fn set_running(&self, running: bool) {
         self.readback.running.store(running, Ordering::Relaxed);
     }

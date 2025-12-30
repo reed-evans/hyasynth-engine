@@ -5,7 +5,6 @@ use crate::execution_plan::{ExecutionPlan, SlicePlan};
 use crate::graph::Graph;
 use crate::state::Command;
 use crate::voice_allocator::VoiceAllocator;
-use crate::bridge::EngineHandle;
 
 /// Real-time audio engine.
 ///
@@ -285,20 +284,6 @@ impl Engine {
             // Compilation commands - sync handled elsewhere
             Command::SyncTrackParams { .. } | Command::SyncAllTrackParams => true,
         }
-    }
-
-    /// Process all pending commands from an EngineHandle.
-    ///
-    /// Returns `true` if any command requires graph recompilation.
-    /// The caller should check this and trigger recompilation if needed.
-    pub fn process_commands(&mut self, handle: &EngineHandle) -> bool {
-        let mut needs_recompile = false;
-
-        for cmd in handle.drain_commands() {
-            needs_recompile |= !self.process_command(&cmd)
-        }
-
-        needs_recompile
     }
 
     /// Replace the current graph with a new one.

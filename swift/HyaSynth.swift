@@ -94,8 +94,8 @@ public struct EngineState {
 // MARK: - Session (UI-side handle)
 
 public final class HyasynthSession {
-    private var handle: OpaquePointer?
-    private var engineHandle: OpaquePointer?
+    internal var handle: OpaquePointer?
+    internal var engineHandle: OpaquePointer?
     
     public init(name: String = "Untitled") {
         var engine: OpaquePointer?
@@ -448,12 +448,339 @@ public extension HyasynthSession {
         let osc = addNode(oscillator)
         let env = addNode(.adsrEnv)
         let out = addNode(.output)
-        
+
         connect(from: osc, to: env)
         connect(from: env, to: out)
         setOutputNode(out)
-        
+
         return (osc, env, out)
     }
 }
 
+// MARK: - Node Registry
+
+/// Registry of available node types.
+public final class HyasynthRegistry {
+    private var handle: OpaquePointer?
+
+    public init() {
+        handle = registry_create()
+    }
+
+    deinit {
+        if let h = handle {
+            registry_destroy(h)
+        }
+    }
+
+    public var count: UInt32 {
+        guard let h = handle else { return 0 }
+        return registry_count(h)
+    }
+
+    internal var unsafeHandle: OpaquePointer? { handle }
+}
+
+// MARK: - Audio Engine
+
+/// Audio rendering engine for real-time audio processing.
+///
+/// This class manages the audio thread side of the engine and provides
+/// integration with AVAudioEngine via `AVAudioSourceNode`.
+///
+/// Usage:
+/// ```swift
+/// let session = HyasynthSession(name: "My Synth")
+/// let registry = HyasynthRegistry()
+/// let audioEngine = HyasynthAudioEngine(session: session, registry: registry)
+///
+/// // Build your graph
+/// session.createSimpleSynth()
+/// audioEngine.compileGraph()
+///
+/// // Start audio
+/// try audioEngine.start()
+/// ```
+public final class HyasynthAudioEngine {
+    private let session: HyasynthSession
+    private let registry: HyasynthRegistry
+    private var engineHandle: OpaquePointer?
+
+    /// The sample rate used for audio processing.
+    public private(set) var sampleRate: Double = 48000.0
+
+    /// Whether the audio engine is currently running.
+    public private(set) var isRunning: Bool = false
+
+    /// Create an audio engine for the given session.
+    ///
+    /// - Parameters:
+    ///   - session: The session containing the graph definition
+    ///   - registry: The node registry for creating node instances
+    public init(session: HyasynthSession, registry: HyasynthRegistry) {
+        self.session = session
+        self.registry = registry
+        self.engineHandle = session.unsafeEngineHandle
+    }
+
+    // MARK: - Graph Compilation
+
+    /// Compile the session's graph and load it into the engine.
+    ///
+    /// Call this after making structural changes to the graph (adding/removing
+    /// nodes, changing connections).
+    ///
+    /// - Parameter sampleRate: The sample rate to prepare for (default: 48000)
+    /// - Returns: `true` if compilation succeeded
+    @discardableResult
+    public func compileGraph(sampleRate: Double = 48000.0) -> Bool {
+        guard let engine = engineHandle,
+              let sessionHandle = session.handle,
+              let reg = registry.unsafeHandle else {
+            return false
+        }
+
+        self.sampleRate = sampleRate
+        return engine_compile_graph(sessionHandle, engine, reg, sampleRate)
+    }
+
+    /// Prepare the engine for processing at the given sample rate.
+    public func prepare(sampleRate: Double = 48000.0) {
+        guard let engine = engineHandle else { return }
+        self.sampleRate = sampleRate
+        engine_prepare(engine, sampleRate)
+    }
+
+    /// Reset the engine state (clear buffers, reset oscillators/envelopes).
+    public func reset() {
+        guard let engine = engineHandle else { return }
+        engine_reset(engine)
+    }
+
+    // MARK: - Rendering
+
+    /// Process pending commands from the UI thread.
+    ///
+    /// Call this at the start of your render callback.
+    ///
+    /// - Returns: `true` if any command requires graph recompilation
+    @discardableResult
+    public func processCommands() -> Bool {
+        guard let engine = engineHandle else { return false }
+        return engine_process_commands(engine)
+    }
+
+    /// Render audio to separate left/right channel buffers.
+    ///
+    /// - Parameters:
+    ///   - frames: Number of frames to render
+    ///   - left: Pointer to left channel buffer
+    ///   - right: Pointer to right channel buffer
+    public func render(frames: UInt32, left: UnsafeMutablePointer<Float>, right: UnsafeMutablePointer<Float>) {
+        guard let engine = engineHandle else {
+            // Fill with silence
+            left.initialize(repeating: 0, count: Int(frames))
+            right.initialize(repeating: 0, count: Int(frames))
+            return
+        }
+        engine_render(engine, frames, left, right)
+    }
+
+    /// Render audio to an interleaved stereo buffer.
+    ///
+    /// Output format: [L0, R0, L1, R1, ...]
+    ///
+    /// - Parameters:
+    ///   - frames: Number of frames to render
+    ///   - output: Pointer to interleaved output buffer (must have space for frames * 2 samples)
+    public func renderInterleaved(frames: UInt32, output: UnsafeMutablePointer<Float>) {
+        guard let engine = engineHandle else {
+            output.initialize(repeating: 0, count: Int(frames) * 2)
+            return
+        }
+        engine_render_interleaved(engine, frames, output)
+    }
+
+    // MARK: - State
+
+    /// Check if the engine is currently playing.
+    public var isPlaying: Bool {
+        guard let engine = engineHandle else { return false }
+        return engine_is_playing(engine)
+    }
+
+    /// Get the current tempo in BPM.
+    public var tempo: Double {
+        guard let engine = engineHandle else { return 120.0 }
+        return engine_get_tempo(engine)
+    }
+
+    /// Get the number of active voices.
+    public var activeVoices: UInt32 {
+        guard let engine = engineHandle else { return 0 }
+        return engine_get_active_voices(engine)
+    }
+}
+
+// MARK: - AVAudioEngine Integration
+
+#if canImport(AVFAudio)
+import AVFAudio
+
+/// Audio host that integrates HyasynthAudioEngine with AVAudioEngine.
+///
+/// This provides a complete audio playback solution for iOS/macOS apps.
+///
+/// Usage:
+/// ```swift
+/// let session = HyasynthSession(name: "My Synth")
+/// let registry = HyasynthRegistry()
+/// let host = HyasynthAudioHost(session: session, registry: registry)
+///
+/// // Build your graph
+/// session.createSimpleSynth()
+/// host.compileGraph()
+///
+/// // Start audio
+/// try host.start()
+///
+/// // Play notes
+/// session.noteOn(60, velocity: 0.8)
+/// ```
+public final class HyasynthAudioHost {
+    /// The underlying Hyasynth audio engine.
+    public let engine: HyasynthAudioEngine
+
+    /// The session being hosted.
+    public let session: HyasynthSession
+
+    /// The AVAudioEngine instance.
+    public let avEngine: AVAudioEngine
+
+    /// The source node that generates audio.
+    public private(set) var sourceNode: AVAudioSourceNode?
+
+    /// Whether the audio host is currently running.
+    public private(set) var isRunning: Bool = false
+
+    /// Create an audio host for the given session.
+    ///
+    /// - Parameters:
+    ///   - session: The session containing the graph definition
+    ///   - registry: The node registry for creating node instances
+    public init(session: HyasynthSession, registry: HyasynthRegistry) {
+        self.session = session
+        self.engine = HyasynthAudioEngine(session: session, registry: registry)
+        self.avEngine = AVAudioEngine()
+    }
+
+    deinit {
+        stop()
+    }
+
+    /// Compile the session's graph.
+    ///
+    /// Call this after making structural changes to the graph.
+    /// Uses the current audio session's sample rate.
+    @discardableResult
+    public func compileGraph() -> Bool {
+        let sampleRate = avEngine.outputNode.outputFormat(forBus: 0).sampleRate
+        return engine.compileGraph(sampleRate: sampleRate > 0 ? sampleRate : 48000.0)
+    }
+
+    /// Start audio playback.
+    ///
+    /// This sets up the AVAudioEngine with a source node that renders
+    /// audio from the Hyasynth engine.
+    public func start() throws {
+        guard !isRunning else { return }
+
+        let outputFormat = avEngine.outputNode.outputFormat(forBus: 0)
+        let sampleRate = outputFormat.sampleRate > 0 ? outputFormat.sampleRate : 48000.0
+
+        // Prepare the engine if not already done
+        engine.prepare(sampleRate: sampleRate)
+
+        // Create the render format (stereo float)
+        guard let format = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: sampleRate,
+            channels: 2,
+            interleaved: false
+        ) else {
+            throw HyasynthError.audioFormatError
+        }
+
+        // Capture self weakly for the render callback
+        let hyasynthEngine = engine
+
+        // Create the source node with render callback
+        let source = AVAudioSourceNode(format: format) { _, _, frameCount, audioBufferList -> OSStatus in
+            let bufferList = UnsafeMutableAudioBufferListPointer(audioBufferList)
+
+            // Process any pending commands
+            _ = hyasynthEngine.processCommands()
+
+            // Get buffer pointers
+            guard bufferList.count >= 2,
+                  let leftBuffer = bufferList[0].mData?.assumingMemoryBound(to: Float.self),
+                  let rightBuffer = bufferList[1].mData?.assumingMemoryBound(to: Float.self) else {
+                // Fill with silence if buffer setup is wrong
+                for buffer in bufferList {
+                    if let data = buffer.mData {
+                        memset(data, 0, Int(buffer.mDataByteSize))
+                    }
+                }
+                return noErr
+            }
+
+            // Render audio
+            hyasynthEngine.render(frames: frameCount, left: leftBuffer, right: rightBuffer)
+
+            return noErr
+        }
+
+        sourceNode = source
+
+        // Connect nodes: source -> output
+        avEngine.attach(source)
+        avEngine.connect(source, to: avEngine.mainMixerNode, format: format)
+
+        // Start the engine
+        try avEngine.start()
+        isRunning = true
+    }
+
+    /// Stop audio playback.
+    public func stop() {
+        guard isRunning else { return }
+
+        avEngine.stop()
+
+        if let source = sourceNode {
+            avEngine.detach(source)
+            sourceNode = nil
+        }
+
+        isRunning = false
+    }
+
+    /// Pause audio playback (keeps engine attached).
+    public func pause() {
+        avEngine.pause()
+    }
+
+    /// Resume audio playback after pause.
+    public func resume() throws {
+        try avEngine.start()
+    }
+}
+
+/// Errors that can occur in Hyasynth audio operations.
+public enum HyasynthError: Error {
+    case audioFormatError
+    case engineNotReady
+    case compilationFailed
+}
+
+#endif
