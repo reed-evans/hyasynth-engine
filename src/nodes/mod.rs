@@ -373,13 +373,6 @@ fn register_effects(registry: &mut NodeRegistry) {
         SimpleNodeFactory::new(|| Box::new(PanNode::new()), Polyphony::Global).channels(2),
     );
 
-    // Mixer (sums multiple inputs)
-    registry.register(
-        NodeTypeInfo::new(node_types::MIXER, "Mixer", "Effects")
-            .with_output(PortInfo::audio_output(0, "Out").stereo()),
-        SimpleNodeFactory::new(|| Box::new(MixerNode::new(2)), Polyphony::Global).channels(2),
-    );
-
     // Delay
     registry.register(
         NodeTypeInfo::new(node_types::DELAY, "Delay", "Effects")

@@ -123,24 +123,6 @@ impl Engine {
         self.graph.reset();
     }
 
-    /// Replace the graph (for recompilation).
-    ///
-    /// This swaps in a new graph. The engine will use it on the next
-    /// process call. The old graph is dropped.
-    pub fn set_graph(&mut self, graph: Graph) {
-        self.graph = graph;
-    }
-
-    /// Get a reference to the graph.
-    pub fn graph(&self) -> &Graph {
-        &self.graph
-    }
-
-    /// Get a mutable reference to the graph.
-    pub fn graph_mut(&mut self) -> &mut Graph {
-        &mut self.graph
-    }
-
     /// Get the output buffer after processing
     pub fn output_buffer(&self, frames: usize) -> Option<&[f32]> {
         self.graph.output_buffer(frames)
