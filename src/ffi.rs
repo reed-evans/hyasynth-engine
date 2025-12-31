@@ -16,10 +16,35 @@ use crate::nodes::register_standard_nodes;
 use crate::state::{EngineReadback, Session};
 use crate::voice_allocator::VoiceAllocator;
 
+use log::{debug, info, warn, error, LevelFilter};
+use oslog::OsLogger;
+
 // Default audio configuration
 const DEFAULT_MAX_BLOCK: usize = 512;
 const DEFAULT_MAX_VOICES: usize = 16;
 const DEFAULT_SAMPLE_RATE: f64 = 48_000.0;
+
+// Logger subsystem identifier
+const LOG_SUBSYSTEM: &str = "com.hyasynth.engine";
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Logger Initialization
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Initialize the oslog logger.
+///
+/// This should be called once at application startup before using any other
+/// FFI functions. It sets up unified logging that will appear in Console.app
+/// and Xcode's debug console.
+///
+/// Returns `true` if initialization succeeded, `false` otherwise.
+#[unsafe(no_mangle)]
+pub extern "C" fn hyasynth_init_logger() {
+    OsLogger::new(LOG_SUBSYSTEM)
+        .level_filter(LevelFilter::Debug)  // Set global minimum level
+        .init()
+        .ok();
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Opaque Handle Types
@@ -617,62 +642,64 @@ pub unsafe extern "C" fn engine_render(
     output_left: *mut f32,
     output_right: *mut f32,
 ) {
-    let frames = frames as usize;
+    let total_frames = frames as usize;
 
     // Fill with silence if invalid
     if engine.is_null() || output_left.is_null() || output_right.is_null() {
         if !output_left.is_null() {
-            unsafe { std::ptr::write_bytes(output_left, 0, frames) };
+            unsafe { std::ptr::write_bytes(output_left, 0, total_frames) };
         }
         if !output_right.is_null() {
-            unsafe { std::ptr::write_bytes(output_right, 0, frames) };
+            unsafe { std::ptr::write_bytes(output_right, 0, total_frames) };
         }
         return;
     }
 
     let engine = unsafe { &mut (*engine).inner };
+    let max_block = engine.engine().graph().max_block;
 
-    // Create a simple execution plan for this block
-    // In a full implementation, this would come from the Scheduler
-    let plan = crate::execution_plan::ExecutionPlan {
-        block_start_sample: 0, // Would be tracked properly
-        block_frames: frames,
-        bpm: engine.bpm(),
-        sample_rate: DEFAULT_SAMPLE_RATE,
-        slices: vec![crate::execution_plan::SlicePlan::new(0, frames)],
-    };
+    let out_left = unsafe { std::slice::from_raw_parts_mut(output_left, total_frames) };
+    let out_right = unsafe { std::slice::from_raw_parts_mut(output_right, total_frames) };
 
-    // Process the audio
-    engine.process_plan(&plan);
+    // Process in chunks of max_block size
+    let mut offset = 0;
+    while offset < total_frames {
+        let chunk_frames = (total_frames - offset).min(max_block);
 
-    // Copy output to provided buffers
-    if let Some(output) = engine.output_buffer(frames) {
-        let out_left = unsafe { std::slice::from_raw_parts_mut(output_left, frames) };
-        let out_right = unsafe { std::slice::from_raw_parts_mut(output_right, frames) };
+        let plan = crate::execution_plan::ExecutionPlan {
+            block_start_sample: 0, // Would be tracked properly
+            block_frames: chunk_frames,
+            bpm: engine.bpm(),
+            sample_rate: DEFAULT_SAMPLE_RATE,
+            slices: vec![crate::execution_plan::SlicePlan::new(0, chunk_frames)],
+        };
 
-        // Assuming stereo interleaved or stereo planar output
-        // The graph outputs interleaved stereo: [L0, R0, L1, R1, ...]
-        if output.len() >= frames * 2 {
-            // Stereo output - deinterleave
-            for i in 0..frames {
-                out_left[i] = output[i * 2];
-                out_right[i] = output[i * 2 + 1];
+        engine.process_plan(&plan);
+
+        // Copy output to provided buffers
+        if let Some(output) = engine.output_buffer(chunk_frames) {
+            if output.len() >= chunk_frames * 2 {
+                // Stereo output - deinterleave
+                for i in 0..chunk_frames {
+                    out_left[offset + i] = output[i * 2];
+                    out_right[offset + i] = output[i * 2 + 1];
+                }
+            } else if output.len() >= chunk_frames {
+                // Mono output - copy to both channels
+                out_left[offset..offset + chunk_frames].copy_from_slice(&output[..chunk_frames]);
+                out_right[offset..offset + chunk_frames].copy_from_slice(&output[..chunk_frames]);
+            } else {
+                // Not enough output - fill with silence
+                out_left[offset..offset + chunk_frames].fill(0.0);
+                out_right[offset..offset + chunk_frames].fill(0.0);
             }
-        } else if output.len() >= frames {
-            // Mono output - copy to both channels
-            out_left.copy_from_slice(&output[..frames]);
-            out_right.copy_from_slice(&output[..frames]);
         } else {
-            // Not enough output - fill with silence
-            out_left.fill(0.0);
-            out_right.fill(0.0);
+            // No output buffer - fill with silence
+            out_left[offset..offset + chunk_frames].fill(0.0);
+            out_right[offset..offset + chunk_frames].fill(0.0);
         }
-    } else {
-        // No output buffer - fill with silence
-        let out_left = unsafe { std::slice::from_raw_parts_mut(output_left, frames) };
-        let out_right = unsafe { std::slice::from_raw_parts_mut(output_right, frames) };
-        out_left.fill(0.0);
-        out_right.fill(0.0);
+
+        offset += chunk_frames;
     }
 
     // Sync readback state for UI
@@ -692,43 +719,54 @@ pub unsafe extern "C" fn engine_render_interleaved(
     frames: u32,
     output: *mut f32,
 ) {
-    let frames = frames as usize;
+    let total_frames = frames as usize;
 
     if engine.is_null() || output.is_null() {
         if !output.is_null() {
-            unsafe { std::ptr::write_bytes(output, 0, frames * 2) };
+            unsafe { std::ptr::write_bytes(output, 0, total_frames * 2) };
         }
         return;
     }
 
     let engine = unsafe { &mut (*engine).inner };
+    let max_block = engine.engine().graph().max_block;
 
-    let plan = crate::execution_plan::ExecutionPlan {
-        block_start_sample: 0,
-        block_frames: frames,
-        bpm: engine.bpm(),
-        sample_rate: DEFAULT_SAMPLE_RATE,
-        slices: vec![crate::execution_plan::SlicePlan::new(0, frames)],
-    };
+    let out_slice = unsafe { std::slice::from_raw_parts_mut(output, total_frames * 2) };
 
-    engine.process_plan(&plan);
+    // Process in chunks of max_block size
+    let mut offset = 0;
+    while offset < total_frames {
+        let chunk_frames = (total_frames - offset).min(max_block);
 
-    let out_slice = unsafe { std::slice::from_raw_parts_mut(output, frames * 2) };
+        let plan = crate::execution_plan::ExecutionPlan {
+            block_start_sample: 0,
+            block_frames: chunk_frames,
+            bpm: engine.bpm(),
+            sample_rate: DEFAULT_SAMPLE_RATE,
+            slices: vec![crate::execution_plan::SlicePlan::new(0, chunk_frames)],
+        };
 
-    if let Some(engine_output) = engine.output_buffer(frames) {
-        if engine_output.len() >= frames * 2 {
-            out_slice.copy_from_slice(&engine_output[..frames * 2]);
-        } else if engine_output.len() >= frames {
-            // Mono to stereo
-            for i in 0..frames {
-                out_slice[i * 2] = engine_output[i];
-                out_slice[i * 2 + 1] = engine_output[i];
+        engine.process_plan(&plan);
+
+        let out_chunk = &mut out_slice[offset * 2..(offset + chunk_frames) * 2];
+
+        if let Some(engine_output) = engine.output_buffer(chunk_frames) {
+            if engine_output.len() >= chunk_frames * 2 {
+                out_chunk.copy_from_slice(&engine_output[..chunk_frames * 2]);
+            } else if engine_output.len() >= chunk_frames {
+                // Mono to stereo
+                for i in 0..chunk_frames {
+                    out_chunk[i * 2] = engine_output[i];
+                    out_chunk[i * 2 + 1] = engine_output[i];
+                }
+            } else {
+                out_chunk.fill(0.0);
             }
         } else {
-            out_slice.fill(0.0);
+            out_chunk.fill(0.0);
         }
-    } else {
-        out_slice.fill(0.0);
+
+        offset += chunk_frames;
     }
 
     engine.sync_readback();
@@ -823,16 +861,23 @@ pub unsafe extern "C" fn engine_compile_graph(
     let engine = unsafe { &mut (*engine).inner };
     let registry = unsafe { &(*registry).inner };
 
+    // Use the existing graph's max_block and max_voices to maintain consistency
+    let max_block = engine.engine().graph().max_block;
+    let max_voices = engine.engine().graph().max_voices;
+
     // Compile the graph from the session's definition
     let graph_def = session.session().build_runtime_graph();
 
-    match crate::compile::compile(&graph_def, registry, DEFAULT_MAX_BLOCK, DEFAULT_MAX_VOICES) {
+    match crate::compile::compile(&graph_def, registry, max_block, max_voices) {
         Ok(mut graph) => {
             graph.prepare(sample_rate);
             engine.swap_graph(graph);
             true
         }
-        Err(_) => false,
+        Err(e) => {
+            error!("Error compiling graph: {:?}", e);
+            false
+        }
     }
 }
 

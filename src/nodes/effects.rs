@@ -162,6 +162,89 @@ impl Node for PanNode {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Mixer Node
+// ═══════════════════════════════════════════════════════════════════
+
+/// Sums multiple stereo inputs together with a master gain.
+pub struct MixerNode {
+    gain_db: f32,
+    gain_linear: f32,
+}
+
+impl MixerNode {
+    pub fn new() -> Self {
+        Self {
+            gain_db: 0.0,
+            gain_linear: 1.0,
+        }
+    }
+
+    fn update_linear(&mut self) {
+        self.gain_linear = 10.0_f32.powf(self.gain_db / 20.0);
+    }
+}
+
+impl Default for MixerNode {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Node for MixerNode {
+    fn prepare(&mut self, _sample_rate: f64, _max_block: usize) {}
+
+    fn process(
+        &mut self,
+        ctx: &ProcessContext,
+        inputs: &[&AudioBuffer],
+        output: &mut AudioBuffer,
+    ) -> bool {
+        output.clear();
+
+        if inputs.is_empty() {
+            return false;
+        }
+
+        // Sum all inputs
+        for input in inputs {
+            for ch in 0..output.channels.min(input.channels) {
+                let in_ch = input.channel(ch);
+                let out_ch = output.channel_mut(ch);
+                for i in 0..ctx.frames {
+                    out_ch[i] += in_ch.get(i).copied().unwrap_or(0.0);
+                }
+            }
+        }
+
+        // Apply master gain
+        if (self.gain_linear - 1.0).abs() > 0.0001 {
+            for ch in 0..output.channels {
+                let out_ch = output.channel_mut(ch);
+                for i in 0..ctx.frames {
+                    out_ch[i] *= self.gain_linear;
+                }
+            }
+        }
+
+        false
+    }
+
+    fn num_channels(&self) -> usize {
+        2
+    }
+
+    fn set_param(&mut self, param_id: u32, value: f32) {
+        match param_id {
+            params::GAIN => {
+                self.gain_db = value;
+                self.update_linear();
+            }
+            _ => {}
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Delay Node
 // ═══════════════════════════════════════════════════════════════════
 

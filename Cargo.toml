@@ -12,3 +12,5 @@ name = "hyasynth-engine"
 path = "src/main.rs"
 
 [dependencies]
+log = "0.4.29"
+oslog = "0.2.0"
