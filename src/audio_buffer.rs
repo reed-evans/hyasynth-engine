@@ -2,7 +2,7 @@
 pub struct AudioBuffer<'a> {
     pub channels: usize,
     pub frames: usize,
-    pub data: &'a mut [f32], // interleaved: ch0..chN, frame by frame
+    pub data: &'a mut [f32], // planar: [ch0_all_frames][ch1_all_frames]...
 }
 
 impl<'a> AudioBuffer<'a> {
@@ -34,13 +34,13 @@ impl<'a> AudioBuffer<'a> {
         &mut self.data[start..start + self.frames]
     }
 
-    /// Get direct access to the interleaved sample data.
+    /// Get direct access to the raw planar sample data.
     #[inline]
     pub fn samples(&self) -> &[f32] {
         self.data
     }
 
-    /// Get mutable access to the interleaved sample data.
+    /// Get mutable access to the raw planar sample data.
     #[inline]
     pub fn samples_mut(&mut self) -> &mut [f32] {
         self.data

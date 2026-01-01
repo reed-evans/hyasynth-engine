@@ -51,8 +51,10 @@ impl Node for OutputNode {
         output.clear();
 
         for input in inputs {
-            for ch in 0..output.channels.min(input.channels) {
-                let in_ch = input.channel(ch);
+            for ch in 0..output.channels {
+                // For mono-to-stereo: use channel 0 for all output channels if input has fewer
+                let in_ch_idx = ch.min(input.channels.saturating_sub(1));
+                let in_ch = input.channel(in_ch_idx);
                 let out_ch = output.channel_mut(ch);
                 for i in 0..ctx.frames {
                     out_ch[i] += in_ch.get(i).copied().unwrap_or(0.0) * self.master_linear;

@@ -53,9 +53,9 @@ pub fn end_to_end_test() {
     // --------------------------------
     // Setting parameters (session_set_param())
     // --------------------------------
-    session_handle.set_param(env, params::ATTACK, 0.01);
-    session_handle.set_param(env, params::DECAY, 0.2);
-    session_handle.set_param(env, params::SUSTAIN, 0.5);
+    session_handle.set_param(env, params::ATTACK, 0.0);
+    session_handle.set_param(env, params::DECAY, 1.0);
+    session_handle.set_param(env, params::SUSTAIN, 1.0);
     session_handle.set_param(env, params::RELEASE, 0.3);
 
     // --------------------------------
@@ -93,9 +93,12 @@ pub fn end_to_end_test() {
     let mut out_left = vec![0.0; total_frames];
     let mut out_right = vec![0.0; total_frames];
 
+    println!("Total frames: {}", total_frames);
+
     let mut offset = 0;
     while offset < total_frames {
         let chunk_frames = (total_frames - offset).min(max_block_size);
+        println!("Chunk frames: {}", chunk_frames);
 
         // Use the scheduler to compile a proper execution plan
         scheduler.compile_block(
@@ -112,13 +115,13 @@ pub fn end_to_end_test() {
         engine_handle.process_plan(plan);
 
         // Copy output to provided buffers
+        // Note: output buffer is in PLANAR format: [L0..LN, R0..RN]
         if let Some(output) = engine_handle.output_buffer(chunk_frames) {
+            println!("Output length: {}", output.len());
             if output.len() >= chunk_frames * 2 {
-                // Stereo output - deinterleave
-                for i in 0..chunk_frames {
-                    out_left[offset + i] = output[i * 2];
-                    out_right[offset + i] = output[i * 2 + 1];
-                }
+                // Stereo output - planar format: first half is left, second half is right
+                out_left[offset..offset + chunk_frames].copy_from_slice(&output[..chunk_frames]);
+                out_right[offset..offset + chunk_frames].copy_from_slice(&output[chunk_frames..chunk_frames * 2]);
             } else if output.len() >= chunk_frames {
                 // Mono output - copy to both channels
                 out_left[offset..offset + chunk_frames].copy_from_slice(&output[..chunk_frames]);

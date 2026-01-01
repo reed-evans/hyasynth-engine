@@ -695,13 +695,12 @@ pub unsafe extern "C" fn engine_render(
         engine_wrapper.inner.process_plan(plan);
 
         // Copy output to provided buffers
+        // Note: internal buffer is PLANAR format: [L0..LN, R0..RN]
         if let Some(output) = engine_wrapper.inner.output_buffer(chunk_frames) {
             if output.len() >= chunk_frames * 2 {
-                // Stereo output - deinterleave
-                for i in 0..chunk_frames {
-                    out_left[offset + i] = output[i * 2];
-                    out_right[offset + i] = output[i * 2 + 1];
-                }
+                // Stereo output - planar format: first half is left, second half is right
+                out_left[offset..offset + chunk_frames].copy_from_slice(&output[..chunk_frames]);
+                out_right[offset..offset + chunk_frames].copy_from_slice(&output[chunk_frames..chunk_frames * 2]);
             } else if output.len() >= chunk_frames {
                 // Mono output - copy to both channels
                 out_left[offset..offset + chunk_frames].copy_from_slice(&output[..chunk_frames]);
@@ -772,11 +771,17 @@ pub unsafe extern "C" fn engine_render_interleaved(
 
         let out_chunk = &mut out_slice[offset * 2..(offset + chunk_frames) * 2];
 
+        // Note: internal buffer is PLANAR format: [L0..LN, R0..RN]
+        // Output should be INTERLEAVED: [L0, R0, L1, R1, ...]
         if let Some(engine_output) = engine_wrapper.inner.output_buffer(chunk_frames) {
             if engine_output.len() >= chunk_frames * 2 {
-                out_chunk.copy_from_slice(&engine_output[..chunk_frames * 2]);
+                // Convert planar to interleaved
+                for i in 0..chunk_frames {
+                    out_chunk[i * 2] = engine_output[i];                    // Left from first half
+                    out_chunk[i * 2 + 1] = engine_output[chunk_frames + i]; // Right from second half
+                }
             } else if engine_output.len() >= chunk_frames {
-                // Mono to stereo
+                // Mono to stereo interleaved
                 for i in 0..chunk_frames {
                     out_chunk[i * 2] = engine_output[i];
                     out_chunk[i * 2 + 1] = engine_output[i];

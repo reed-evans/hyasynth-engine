@@ -54,11 +54,15 @@ impl Node for GainNode {
         }
 
         // Copy and scale input to output
-        for ch in 0..output.channels.min(inputs.get(0).map_or(0, |i| i.channels)) {
-            let input = inputs[0].channel(ch);
-            let out = output.channel_mut(ch);
-            for i in 0..ctx.frames {
-                out[i] = input.get(i).copied().unwrap_or(0.0) * self.gain_linear;
+        if let Some(input_buf) = inputs.get(0) {
+            for ch in 0..output.channels {
+                // For mono-to-stereo: use channel 0 for all output channels if input has fewer
+                let in_ch_idx = ch.min(input_buf.channels.saturating_sub(1));
+                let input = input_buf.channel(in_ch_idx);
+                let out = output.channel_mut(ch);
+                for i in 0..ctx.frames {
+                    out[i] = input.get(i).copied().unwrap_or(0.0) * self.gain_linear;
+                }
             }
         }
 
@@ -207,8 +211,10 @@ impl Node for MixerNode {
 
         // Sum all inputs
         for input in inputs {
-            for ch in 0..output.channels.min(input.channels) {
-                let in_ch = input.channel(ch);
+            for ch in 0..output.channels {
+                // For mono-to-stereo: use channel 0 for all output channels if input has fewer
+                let in_ch_idx = ch.min(input.channels.saturating_sub(1));
+                let in_ch = input.channel(in_ch_idx);
                 let out_ch = output.channel_mut(ch);
                 for i in 0..ctx.frames {
                     out_ch[i] += in_ch.get(i).copied().unwrap_or(0.0);
