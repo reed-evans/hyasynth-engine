@@ -62,12 +62,13 @@ impl Engine {
     pub fn process_plan(&mut self, plan: &ExecutionPlan) {
         self.sample_pos = plan.block_start_sample;
 
-        // Clear one-shot voice triggers at block start
-        self.voices.clear_triggers();
-
         for slice in &plan.slices {
             self.process_slice(slice, plan);
         }
+
+        // Clear one-shot voice triggers at block end, after processing.
+        // This ensures triggers set by process_commands() are visible during processing.
+        self.voices.clear_triggers();
     }
 
     /// Execute one slice of time.

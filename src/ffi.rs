@@ -10,9 +10,12 @@ use std::ffi::{CStr, c_char, c_void};
 
 use crate::bridge::{EngineHandle, SessionHandle, create_bridge};
 use crate::engine::Engine;
+use crate::execution_plan::ExecutionPlan;
 use crate::graph::Graph;
 use crate::node_factory::NodeRegistry;
 use crate::nodes::register_standard_nodes;
+use crate::plan_handoff::PlanHandoff;
+use crate::scheduler::Scheduler;
 use crate::state::{EngineReadback, Session};
 use crate::voice_allocator::VoiceAllocator;
 
@@ -58,6 +61,8 @@ pub struct HyasynthSession {
 /// Opaque handle to the EngineHandle (audio-side).
 pub struct HyasynthEngine {
     inner: EngineHandle,
+    scheduler: Scheduler,
+    handoff: PlanHandoff,
 }
 
 /// Opaque handle to the NodeRegistry.
@@ -240,11 +245,20 @@ pub unsafe extern "C" fn session_create_with_config(
 
     let (session_handle, engine_handle) = create_bridge(session, engine);
 
+    // Create scheduler and plan handoff for audio rendering
+    let scheduler = Scheduler::new(cfg.sample_rate);
+    let handoff = PlanHandoff::new(
+        ExecutionPlan::new(cfg.sample_rate),
+        ExecutionPlan::new(cfg.sample_rate),
+    );
+
     // Output the engine handle
     if !out_engine.is_null() {
         unsafe {
             *out_engine = Box::into_raw(Box::new(HyasynthEngine {
                 inner: engine_handle,
+                scheduler,
+                handoff,
             }));
         }
     }
@@ -655,8 +669,8 @@ pub unsafe extern "C" fn engine_render(
         return;
     }
 
-    let engine = unsafe { &mut (*engine).inner };
-    let max_block = engine.engine().graph().max_block;
+    let engine_wrapper = unsafe { &mut (*engine) };
+    let max_block = engine_wrapper.inner.engine().graph().max_block;
 
     let out_left = unsafe { std::slice::from_raw_parts_mut(output_left, total_frames) };
     let out_right = unsafe { std::slice::from_raw_parts_mut(output_right, total_frames) };
@@ -666,18 +680,22 @@ pub unsafe extern "C" fn engine_render(
     while offset < total_frames {
         let chunk_frames = (total_frames - offset).min(max_block);
 
-        let plan = crate::execution_plan::ExecutionPlan {
-            block_start_sample: 0, // Would be tracked properly
-            block_frames: chunk_frames,
-            bpm: engine.bpm(),
-            sample_rate: DEFAULT_SAMPLE_RATE,
-            slices: vec![crate::execution_plan::SlicePlan::new(0, chunk_frames)],
-        };
+        // Use the scheduler to compile a proper execution plan
+        engine_wrapper.scheduler.compile_block(
+            &mut engine_wrapper.handoff,
+            chunk_frames,
+            &[], // No musical events from this path (they come via commands)
+        );
 
-        engine.process_plan(&plan);
+        // Process any pending commands (like note_on)
+        engine_wrapper.inner.process_commands();
+
+        // Read the compiled plan and process it
+        let plan = engine_wrapper.handoff.read_plan();
+        engine_wrapper.inner.process_plan(plan);
 
         // Copy output to provided buffers
-        if let Some(output) = engine.output_buffer(chunk_frames) {
+        if let Some(output) = engine_wrapper.inner.output_buffer(chunk_frames) {
             if output.len() >= chunk_frames * 2 {
                 // Stereo output - deinterleave
                 for i in 0..chunk_frames {
@@ -703,7 +721,7 @@ pub unsafe extern "C" fn engine_render(
     }
 
     // Sync readback state for UI
-    engine.sync_readback();
+    engine_wrapper.inner.sync_readback();
 }
 
 /// Render audio to an interleaved stereo buffer.
@@ -728,8 +746,8 @@ pub unsafe extern "C" fn engine_render_interleaved(
         return;
     }
 
-    let engine = unsafe { &mut (*engine).inner };
-    let max_block = engine.engine().graph().max_block;
+    let engine_wrapper = unsafe { &mut (*engine) };
+    let max_block = engine_wrapper.inner.engine().graph().max_block;
 
     let out_slice = unsafe { std::slice::from_raw_parts_mut(output, total_frames * 2) };
 
@@ -738,19 +756,23 @@ pub unsafe extern "C" fn engine_render_interleaved(
     while offset < total_frames {
         let chunk_frames = (total_frames - offset).min(max_block);
 
-        let plan = crate::execution_plan::ExecutionPlan {
-            block_start_sample: 0,
-            block_frames: chunk_frames,
-            bpm: engine.bpm(),
-            sample_rate: DEFAULT_SAMPLE_RATE,
-            slices: vec![crate::execution_plan::SlicePlan::new(0, chunk_frames)],
-        };
+        // Use the scheduler to compile a proper execution plan
+        engine_wrapper.scheduler.compile_block(
+            &mut engine_wrapper.handoff,
+            chunk_frames,
+            &[], // No musical events from this path (they come via commands)
+        );
 
-        engine.process_plan(&plan);
+        // Process any pending commands (like note_on)
+        engine_wrapper.inner.process_commands();
+
+        // Read the compiled plan and process it
+        let plan = engine_wrapper.handoff.read_plan();
+        engine_wrapper.inner.process_plan(plan);
 
         let out_chunk = &mut out_slice[offset * 2..(offset + chunk_frames) * 2];
 
-        if let Some(engine_output) = engine.output_buffer(chunk_frames) {
+        if let Some(engine_output) = engine_wrapper.inner.output_buffer(chunk_frames) {
             if engine_output.len() >= chunk_frames * 2 {
                 out_chunk.copy_from_slice(&engine_output[..chunk_frames * 2]);
             } else if engine_output.len() >= chunk_frames {
@@ -769,7 +791,7 @@ pub unsafe extern "C" fn engine_render_interleaved(
         offset += chunk_frames;
     }
 
-    engine.sync_readback();
+    engine_wrapper.inner.sync_readback();
 }
 
 /// Check if the engine is currently playing.
@@ -866,7 +888,8 @@ pub unsafe extern "C" fn engine_compile_graph(
     let max_voices = engine.engine().graph().max_voices;
 
     // Compile the graph from the session's definition
-    let graph_def = session.session().build_runtime_graph();
+    // let graph_def = session.session().build_runtime_graph();
+    let graph_def = session.session().graph.clone();
 
     match crate::compile::compile(&graph_def, registry, max_block, max_voices) {
         Ok(mut graph) => {
