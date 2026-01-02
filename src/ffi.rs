@@ -397,6 +397,7 @@ pub unsafe extern "C" fn session_set_param(
     param_id: u32,
     value: f32,
 ) {
+    info!("session_set_param: node_id={}, param_id={}, value={}", node_id, param_id, value);
     if session.is_null() {
         return;
     }
@@ -688,6 +689,7 @@ pub unsafe extern "C" fn engine_render(
         );
 
         // Process any pending commands (like note_on)
+        // TODO: This can be moved before the loop I think
         engine_wrapper.inner.process_commands();
 
         // Read the compiled plan and process it

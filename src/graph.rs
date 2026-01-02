@@ -145,6 +145,10 @@ pub struct Graph {
 
     /// Scratch space for collecting input buffer references
     input_scratch: Vec<usize>,
+
+    /// Maps session node IDs to runtime graph indices.
+    /// Populated during compilation.
+    pub id_to_index: std::collections::HashMap<crate::state::NodeId, usize>,
 }
 
 impl Graph {
@@ -158,6 +162,7 @@ impl Graph {
             sample_rate: 48_000.0,
             eval_order: Vec::new(),
             input_scratch: Vec::new(),
+            id_to_index: std::collections::HashMap::new(),
         }
     }
 
@@ -445,32 +450,64 @@ impl Graph {
         self.nodes[idx].silent = all_silent;
     }
 
-    /// Set a parameter on a specific node.
+    /// Set a parameter on a specific node by graph index.
     #[inline]
-    pub fn set_param(&mut self, node_id: usize, param_id: u32, value: f32) {
-        if let Some(node) = self.nodes.get_mut(node_id) {
+    pub fn set_param(&mut self, node_idx: usize, param_id: u32, value: f32) {
+        if let Some(node) = self.nodes.get_mut(node_idx) {
             node.instance.set_param(param_id, value);
         }
     }
 
-    /// Start audio playback on a node.
+    /// Set a parameter on a node by session node ID.
+    /// Uses the id_to_index mapping populated during compilation.
+    #[inline]
+    pub fn set_param_by_id(&mut self, node_id: crate::state::NodeId, param_id: u32, value: f32) {
+        if let Some(&idx) = self.id_to_index.get(&node_id) {
+            if let Some(node) = self.nodes.get_mut(idx) {
+                node.instance.set_param(param_id, value);
+            }
+        }
+    }
+
+    /// Start audio playback on a node by graph index.
     pub fn start_audio(
         &mut self,
-        node_id: usize,
+        node_idx: usize,
         audio_id: crate::state::AudioPoolId,
         start_sample: u64,
         duration_samples: u64,
         gain: f32,
     ) {
-        if let Some(node) = self.nodes.get_mut(node_id) {
+        if let Some(node) = self.nodes.get_mut(node_idx) {
             node.instance.start_audio(audio_id, start_sample, duration_samples, gain);
         }
     }
 
-    /// Stop audio playback on a node.
-    pub fn stop_audio(&mut self, node_id: usize, audio_id: crate::state::AudioPoolId) {
-        if let Some(node) = self.nodes.get_mut(node_id) {
+    /// Start audio playback on a node by session node ID.
+    pub fn start_audio_by_id(
+        &mut self,
+        node_id: crate::state::NodeId,
+        audio_id: crate::state::AudioPoolId,
+        start_sample: u64,
+        duration_samples: u64,
+        gain: f32,
+    ) {
+        if let Some(&idx) = self.id_to_index.get(&node_id) {
+            self.start_audio(idx, audio_id, start_sample, duration_samples, gain);
+        }
+    }
+
+    /// Stop audio playback on a node by graph index.
+    pub fn stop_audio(&mut self, node_idx: usize, audio_id: crate::state::AudioPoolId) {
+        if let Some(node) = self.nodes.get_mut(node_idx) {
             node.instance.stop_audio(audio_id);
+        }
+    }
+
+    /// Stop audio playback on a node by session node ID.
+    pub fn stop_audio_by_id(&mut self, node_id: crate::state::NodeId, audio_id: crate::state::AudioPoolId) {
+        if let Some(&idx) = self.id_to_index.get(&node_id) {
+            self.stop_audio(idx, audio_id);
         }
     }
 

@@ -119,7 +119,7 @@ impl Engine {
                 param_id,
                 value,
             } => {
-                self.graph.set_param(*node_id as usize, *param_id, *value);
+                self.graph.set_param_by_id(*node_id, *param_id, *value);
             }
 
             Event::AudioStart {
@@ -129,8 +129,8 @@ impl Engine {
                 duration_samples,
                 gain,
             } => {
-                self.graph.start_audio(
-                    *node_id as usize,
+                self.graph.start_audio_by_id(
+                    *node_id,
                     *audio_id,
                     *start_sample,
                     *duration_samples,
@@ -139,7 +139,7 @@ impl Engine {
             }
 
             Event::AudioStop { node_id, audio_id } => {
-                self.graph.stop_audio(*node_id as usize, *audio_id);
+                self.graph.stop_audio_by_id(*node_id, *audio_id);
             }
         }
     }
@@ -181,7 +181,7 @@ impl Engine {
                 param_id,
                 value,
             } => {
-                self.graph.set_param(*node_id as usize, *param_id, *value);
+                self.graph.set_param_by_id(*node_id, *param_id, *value);
                 true
             }
 

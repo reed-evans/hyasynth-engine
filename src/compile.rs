@@ -122,6 +122,9 @@ pub fn compile(
         graph.output_node = graph.nodes.len() - 1;
     }
 
+    // Store the ID mapping so commands can translate session IDs to graph indices
+    graph.id_to_index = id_to_index;
+
     Ok(graph)
 }
 
