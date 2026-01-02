@@ -149,6 +149,10 @@ pub struct Graph {
     /// Maps session node IDs to runtime graph indices.
     /// Populated during compilation.
     pub id_to_index: std::collections::HashMap<crate::state::NodeId, usize>,
+
+    /// Voices that finished during this processing block (envelope went idle).
+    /// The engine should drain this after processing and deactivate these voices.
+    voices_to_deactivate: Vec<crate::voice::VoiceId>,
 }
 
 impl Graph {
@@ -163,6 +167,7 @@ impl Graph {
             eval_order: Vec::new(),
             input_scratch: Vec::new(),
             id_to_index: std::collections::HashMap::new(),
+            voices_to_deactivate: Vec::new(),
         }
     }
 
@@ -292,6 +297,9 @@ impl Graph {
     /// Process one block of audio
     pub fn process(&mut self, frames: usize, sample_pos: u64, bpm: f64, voices: &VoiceAllocator) {
         let ctx = ProcessContext::new(frames, self.sample_rate, sample_pos, bpm);
+
+        // Clear finished voices from previous block
+        self.voices_to_deactivate.clear();
 
         // Process nodes in topological order
         // Use index iteration to avoid cloning eval_order
@@ -434,6 +442,21 @@ impl Graph {
                 NodeInstance::Global(_) => unreachable!(),
             };
 
+            // Track voice lifecycle: if this per-voice node returned true (idle/silent),
+            // tentatively mark this voice for deactivation. If ANY node returns false
+            // (still producing output), remove it from the list - the voice is still active.
+            // This ensures we only deactivate when ALL per-voice nodes agree the voice is done.
+            if silent {
+                if !self.voices_to_deactivate.contains(&voice_id) {
+                    self.voices_to_deactivate.push(voice_id);
+                }
+            } else {
+                // Voice is still active - remove from deactivation list if present
+                if let Some(pos) = self.voices_to_deactivate.iter().position(|&v| v == voice_id) {
+                    self.voices_to_deactivate.swap_remove(pos);
+                }
+            }
+
             if !silent {
                 all_silent = false;
                 // Mix voice output into node output
@@ -551,5 +574,15 @@ impl Graph {
         self.buffers
             .get(self.output_node)
             .map(|b| &b.data[..b.channels * frames])
+    }
+
+    /// Drain voices that finished during the last processing block.
+    ///
+    /// Returns an iterator over voice IDs that should be deactivated.
+    /// Call this after `process()` and use the returned IDs to call
+    /// `VoiceAllocator::deactivate()`.
+    #[inline]
+    pub fn drain_finished_voices(&mut self) -> impl Iterator<Item = crate::voice::VoiceId> + '_ {
+        self.voices_to_deactivate.drain(..)
     }
 }

@@ -5,7 +5,6 @@ use crate::node::{Node, ProcessContext};
 
 use super::params;
 
-use log::info;
 // ═══════════════════════════════════════════════════════════════════
 // ADSR Envelope
 // ═══════════════════════════════════════════════════════════════════
@@ -133,7 +132,7 @@ impl Node for AdsrEnvelope {
                 env
             };
         }
-
+        
         self.stage == EnvelopeStage::Idle
     }
 

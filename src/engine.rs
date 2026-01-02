@@ -83,6 +83,11 @@ impl Engine {
         let slice_start = self.sample_pos + slice.frame_offset as u64;
         self.graph
             .process(slice.frame_count, slice_start, plan.bpm, &self.voices);
+
+        // Deactivate voices that finished their envelope release
+        for voice_id in self.graph.drain_finished_voices() {
+            self.voices.deactivate(voice_id);
+        }
     }
 
     /// Apply a musical event immediately.

@@ -76,6 +76,8 @@ pub fn end_to_end_test() {
         }
     }
 
+    //println!("Graph id_to_index: {:?}", engine_handle.engine_mut().graph_mut().id_to_index);
+
     // --------------------------------
     // Preparing engine (engine_prepare())
     // --------------------------------
@@ -89,7 +91,7 @@ pub fn end_to_end_test() {
     // --------------------------------
     // Rendering audio (engine_render())
     // --------------------------------
-    let total_frames = max_block_size * 4 + 512 as usize;
+    let total_frames = max_block_size * 5 as usize;
     let mut out_left = vec![0.0; total_frames];
     let mut out_right = vec![0.0; total_frames];
 
@@ -134,7 +136,7 @@ pub fn end_to_end_test() {
         }
 
         offset += chunk_frames;
-        // offset = 0 -> 512 -> 1536 -> | note off| -> 2048
+        // offset = 0 -> 512 -> 1536 -> | note off| -> 2048 -> 2560
         if offset > max_block_size * 2 {
             session_handle.note_off(60);
         }
