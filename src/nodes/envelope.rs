@@ -121,8 +121,15 @@ impl Node for AdsrEnvelope {
         let has_input = !inputs.is_empty();
         let buf = output.channel_mut(0);
 
+        // Track if we produce any sound during this block
+        let mut produced_sound = false;
+
         for i in 0..ctx.frames {
             let env = self.process_sample();
+
+            if env > 0.0 {
+                produced_sound = true;
+            }
 
             // If we have input, multiply by envelope
             // Otherwise, output raw envelope value
@@ -132,8 +139,9 @@ impl Node for AdsrEnvelope {
                 env
             };
         }
-        
-        self.stage == EnvelopeStage::Idle
+
+        // Only report silent if we produced no sound during the entire block
+        !produced_sound
     }
 
     fn num_channels(&self) -> usize {
