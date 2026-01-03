@@ -21,6 +21,7 @@ enum EnvelopeStage {
 pub struct AdsrEnvelope {
     stage: EnvelopeStage,
     level: f32,
+    smooth_level: f32,
 
     // Parameters (in seconds)
     attack: f32,
@@ -30,6 +31,7 @@ pub struct AdsrEnvelope {
 
     sample_rate: f32,
     release_level: f32,
+    last_note: Option<u8>,
 }
 
 impl AdsrEnvelope {
@@ -37,12 +39,14 @@ impl AdsrEnvelope {
         Self {
             stage: EnvelopeStage::Idle,
             level: 0.0,
+            smooth_level: 0.0,
             attack: 0.01,
             decay: 0.1,
             sustain: 0.7,
             release: 0.3,
             sample_rate: 48_000.0,
             release_level: 0.0,
+            last_note: None,
         }
     }
 
@@ -106,8 +110,16 @@ impl Node for AdsrEnvelope {
         // Handle voice triggers
         if let Some(voice) = ctx.voice {
             if voice.trigger {
+                // Check if this is a different note (voice stealing) or same note retriggering
+                let note_changed = self.last_note != Some(voice.note);
+
+                // Reset to 0 if: idle, or voice was stolen for a different note
+                if self.stage == EnvelopeStage::Idle || note_changed {
+                    self.level = 0.0;
+                    self.smooth_level = 0.0;
+                }
                 self.stage = EnvelopeStage::Attack;
-                self.level = 0.0;
+                self.last_note = Some(voice.note);
             }
             if voice.release
                 && self.stage != EnvelopeStage::Idle
@@ -124,19 +136,24 @@ impl Node for AdsrEnvelope {
         // Track if we produce any sound during this block
         let mut produced_sound = false;
 
+        let cutoff = 1000.0;
+        let coeff = 1.0 - (-2.0 * std::f32::consts::PI * cutoff / self.sample_rate).exp();
+
         for i in 0..ctx.frames {
             let env = self.process_sample();
+            self.smooth_level += (env - self.smooth_level) * coeff;
+            let gain = self.smooth_level.sqrt();
 
-            if env > 0.0 {
+            if gain > 0.0 {
                 produced_sound = true;
             }
 
             // If we have input, multiply by envelope
             // Otherwise, output raw envelope value
             buf[i] = if has_input {
-                inputs[0].channel(0).get(i).copied().unwrap_or(0.0) * env
+                inputs[0].channel(0).get(i).copied().unwrap_or(0.0) * gain
             } else {
-                env
+                gain
             };
         }
 
@@ -161,5 +178,7 @@ impl Node for AdsrEnvelope {
     fn reset(&mut self) {
         self.stage = EnvelopeStage::Idle;
         self.level = 0.0;
+        self.smooth_level = 0.0;
+        self.last_note = None;
     }
 }

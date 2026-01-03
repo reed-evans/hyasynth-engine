@@ -7,6 +7,8 @@ use crate::node::{Node, ProcessContext};
 
 use super::params;
 
+const PHASE_START: f32 = std::f32::consts::PI/2.0;
+
 // ═══════════════════════════════════════════════════════════════════
 // Sine Oscillator
 // ═══════════════════════════════════════════════════════════════════
@@ -16,15 +18,19 @@ pub struct SineOsc {
     freq: f32,
     detune: f32,
     sample_rate: f32,
+    was_silent: bool,
+    last_note: Option<u8>,
 }
 
 impl SineOsc {
     pub fn new() -> Self {
         Self {
-            phase: 0.0,
+            phase: PHASE_START,
             freq: 440.0,
             detune: 0.0,
             sample_rate: 48_000.0,
+            was_silent: true,
+            last_note: None,
         }
     }
 
@@ -61,11 +67,18 @@ impl Node for SineOsc {
         // Check gate for per-voice operation
         if let Some(voice) = ctx.voice {
             if !voice.gate && !voice.release {
+                self.was_silent = true;
                 return true; // Silent if voice is fully released
             }
             if voice.trigger {
-                self.phase = 0.0; // Reset phase on new note
+                let note_changed = self.last_note != Some(voice.note);
+                // Reset phase if: previously silent, or voice was stolen for different note
+                if self.was_silent || note_changed {
+                    self.phase = PHASE_START;
+                }
+                self.last_note = Some(voice.note);
             }
+            self.was_silent = false;
         }
 
         let buf = output.channel_mut(0);
@@ -90,7 +103,9 @@ impl Node for SineOsc {
     }
 
     fn reset(&mut self) {
-        self.phase = 0.0;
+        self.phase = PHASE_START;
+        self.was_silent = true;
+        self.last_note = None;
     }
 }
 
@@ -103,6 +118,8 @@ pub struct SawOsc {
     freq: f32,
     detune: f32,
     sample_rate: f32,
+    was_silent: bool,
+    last_note: Option<u8>,
 }
 
 impl SawOsc {
@@ -112,6 +129,8 @@ impl SawOsc {
             freq: 440.0,
             detune: 0.0,
             sample_rate: 48_000.0,
+            was_silent: true,
+            last_note: None,
         }
     }
 
@@ -147,11 +166,17 @@ impl Node for SawOsc {
 
         if let Some(voice) = ctx.voice {
             if !voice.gate && !voice.release {
+                self.was_silent = true;
                 return true;
             }
             if voice.trigger {
-                self.phase = 0.0;
+                let note_changed = self.last_note != Some(voice.note);
+                if self.was_silent || note_changed {
+                    self.phase = PHASE_START;
+                }
+                self.last_note = Some(voice.note);
             }
+            self.was_silent = false;
         }
 
         let buf = output.channel_mut(0);
@@ -176,7 +201,9 @@ impl Node for SawOsc {
     }
 
     fn reset(&mut self) {
-        self.phase = 0.0;
+        self.phase = PHASE_START;
+        self.was_silent = true;
+        self.last_note = None;
     }
 }
 
@@ -189,6 +216,8 @@ pub struct SquareOsc {
     freq: f32,
     pulse_width: f32,
     sample_rate: f32,
+    was_silent: bool,
+    last_note: Option<u8>,
 }
 
 impl SquareOsc {
@@ -198,6 +227,8 @@ impl SquareOsc {
             freq: 440.0,
             pulse_width: 0.5,
             sample_rate: 48_000.0,
+            was_silent: true,
+            last_note: None,
         }
     }
 
@@ -232,11 +263,17 @@ impl Node for SquareOsc {
 
         if let Some(voice) = ctx.voice {
             if !voice.gate && !voice.release {
+                self.was_silent = true;
                 return true;
             }
             if voice.trigger {
-                self.phase = 0.0;
+                let note_changed = self.last_note != Some(voice.note);
+                if self.was_silent || note_changed {
+                    self.phase = PHASE_START;
+                }
+                self.last_note = Some(voice.note);
             }
+            self.was_silent = false;
         }
 
         let buf = output.channel_mut(0);
@@ -265,7 +302,9 @@ impl Node for SquareOsc {
     }
 
     fn reset(&mut self) {
-        self.phase = 0.0;
+        self.phase = PHASE_START;
+        self.was_silent = true;
+        self.last_note = None;
     }
 }
 
@@ -277,6 +316,8 @@ pub struct TriangleOsc {
     phase: f32,
     freq: f32,
     sample_rate: f32,
+    was_silent: bool,
+    last_note: Option<u8>,
 }
 
 impl TriangleOsc {
@@ -285,6 +326,8 @@ impl TriangleOsc {
             phase: 0.0,
             freq: 440.0,
             sample_rate: 48_000.0,
+            was_silent: true,
+            last_note: None,
         }
     }
 
@@ -319,11 +362,17 @@ impl Node for TriangleOsc {
 
         if let Some(voice) = ctx.voice {
             if !voice.gate && !voice.release {
+                self.was_silent = true;
                 return true;
             }
             if voice.trigger {
-                self.phase = 0.0;
+                let note_changed = self.last_note != Some(voice.note);
+                if self.was_silent || note_changed {
+                    self.phase = PHASE_START;
+                }
+                self.last_note = Some(voice.note);
             }
+            self.was_silent = false;
         }
 
         let buf = output.channel_mut(0);
@@ -351,6 +400,8 @@ impl Node for TriangleOsc {
     }
 
     fn reset(&mut self) {
-        self.phase = 0.0;
+        self.phase = PHASE_START;
+        self.was_silent = true;
+        self.last_note = None;
     }
 }
