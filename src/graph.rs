@@ -13,28 +13,50 @@ use crate::{
 /// Storage for one node's output buffers.
 pub struct NodeBuffer {
     pub channels: usize,
+    pub is_per_voice: bool,
+    /// For global nodes: channels * max_block
+    /// For per-voice nodes: max_voices * channels * max_block
     pub data: Vec<f32>,
-    /// Scratch buffer for accumulating per-voice outputs.
+    /// Scratch buffer for mixing voices
     pub temp_voice: Vec<f32>,
 }
 
 impl NodeBuffer {
-    pub fn new(channels: usize, max_block: usize) -> Self {
-        let size = channels * max_block;
+    pub fn new(channels: usize, max_block: usize, is_per_voice: bool, max_voices: usize) -> Self {
+        let voice_size = channels * max_block;
+        let data_size = if is_per_voice {
+            max_voices * voice_size
+        } else {
+            voice_size
+        };
+
         Self {
             channels,
-            data: vec![0.0; size],
-            temp_voice: vec![0.0; size],
+            is_per_voice,
+            data: vec![0.0; data_size],
+            temp_voice: vec![0.0; voice_size],
         }
     }
 
-    /// Get a mutable AudioBuffer view for writing output.
+    /// Get a mutable AudioBuffer view for writing output (global nodes only).
     #[inline]
     pub fn as_buffer(&mut self, frames: usize) -> AudioBuffer<'_> {
         AudioBuffer {
             channels: self.channels,
             frames,
             data: &mut self.data[..self.channels * frames],
+        }
+    }
+
+    /// Get a mutable AudioBuffer view for a specific voice (per-voice nodes only).
+    #[inline]
+    pub fn as_voice_buffer(&mut self, voice_id: usize, frames: usize) -> AudioBuffer<'_> {
+        let voice_size = self.channels * frames;
+        let offset = voice_id * voice_size;
+        AudioBuffer {
+            channels: self.channels,
+            frames,
+            data: &mut self.data[offset..offset + voice_size],
         }
     }
 }
@@ -183,6 +205,7 @@ impl Graph {
             }
         };
 
+        let is_per_voice = instance.is_per_voice();
         let idx = self.nodes.len();
 
         self.nodes.push(GraphNode {
@@ -191,7 +214,7 @@ impl Graph {
             silent: false,
         });
 
-        self.buffers.push(NodeBuffer::new(channels, self.max_block));
+        self.buffers.push(NodeBuffer::new(channels, self.max_block, is_per_voice, self.max_voices));
 
         idx
     }
@@ -342,17 +365,39 @@ impl Graph {
             return;
         }
 
+        // For global nodes receiving per-voice inputs, we need to mix all voices together.
+        // First, mix per-voice inputs into their temp_voice buffers
+        for &input_idx in &self.input_scratch {
+            let input_buf = &mut self.buffers[input_idx];
+            if input_buf.is_per_voice {
+                let channels = input_buf.channels;
+                let voice_size = channels * frames;
+                input_buf.temp_voice[..voice_size].fill(0.0);
+
+                // Mix all voices into temp_voice
+                for voice_id in 0..self.max_voices {
+                    let offset = voice_id * voice_size;
+                    for i in 0..voice_size {
+                        input_buf.temp_voice[i] += input_buf.data[offset + i];
+                    }
+                }
+            }
+        }
+
+        // Now create AudioBuffer views, using temp_voice for per-voice inputs
         // SAFETY: We need simultaneous read access to multiple input buffers.
         // The borrow checker cannot verify that input indices differ from the output index,
         // but we guarantee this by construction (a node cannot be its own input).
-        // We cast const pointers to mutable only because AudioBuffer requires &mut,
-        // but we only read from input buffers during processing.
         let input_ptrs: Vec<_> = self
             .input_scratch
             .iter()
             .map(|&i| {
                 let b = &self.buffers[i];
-                (b.data.as_ptr(), b.channels)
+                if b.is_per_voice {
+                    (b.temp_voice.as_ptr(), b.channels)
+                } else {
+                    (b.data.as_ptr(), b.channels)
+                }
             })
             .collect();
 
@@ -389,34 +434,21 @@ impl Graph {
     ) {
         let frames = ctx.frames;
 
-        // Clear output buffer
+        // Clear all voice buffers for this node
         let buf = &mut self.buffers[idx];
         let channels = buf.channels;
-        buf.data[..channels * frames].fill(0.0);
+        let total_size = self.max_voices * channels * frames;
+        buf.data[..total_size].fill(0.0);
 
-        // SAFETY: Same justification as process_global_node - we need simultaneous
-        // read access to input buffers while writing to a separate output buffer.
-        let input_ptrs: Vec<_> = self
+        // Collect metadata about input buffers (whether they're per-voice or global)
+        let input_metadata: Vec<_> = self
             .input_scratch
             .iter()
             .map(|&i| {
                 let b = &self.buffers[i];
-                (b.data.as_ptr(), b.channels)
+                (b.data.as_ptr(), b.channels, b.is_per_voice)
             })
             .collect();
-
-        let input_buffers: Vec<AudioBuffer<'_>> = input_ptrs
-            .iter()
-            .map(|&(ptr, ch)| unsafe {
-                AudioBuffer {
-                    channels: ch,
-                    frames,
-                    data: std::slice::from_raw_parts_mut(ptr as *mut f32, ch * frames),
-                }
-            })
-            .collect();
-
-        let input_refs: Vec<&AudioBuffer<'_>> = input_buffers.iter().collect();
 
         let mut all_silent = true;
 
@@ -425,14 +457,39 @@ impl Graph {
             let voice_id = voice_ctx.id;
             let ctx_with_voice = ctx.with_voice(voice_ctx);
 
-            // Clear temp buffer and create view
-            let buf = &mut self.buffers[idx];
-            buf.temp_voice[..channels * frames].fill(0.0);
+            // Build input buffers for this voice
+            // SAFETY: We need simultaneous read access to input buffers while writing to output.
+            // Input and output buffers are separate, so this is safe.
+            let input_buffers: Vec<AudioBuffer<'_>> = input_metadata
+                .iter()
+                .map(|&(ptr, ch, is_per_voice)| unsafe {
+                    let voice_size = ch * frames;
+                    let offset = if is_per_voice {
+                        voice_id * voice_size
+                    } else {
+                        0 // Global buffer - all voices read the same data
+                    };
+                    AudioBuffer {
+                        channels: ch,
+                        frames,
+                        data: std::slice::from_raw_parts_mut(
+                            (ptr as *mut f32).add(offset),
+                            voice_size,
+                        ),
+                    }
+                })
+                .collect();
 
+            let input_refs: Vec<&AudioBuffer<'_>> = input_buffers.iter().collect();
+
+            // Get output buffer for this voice
+            let buf = &mut self.buffers[idx];
+            let voice_size = channels * frames;
+            let offset = voice_id * voice_size;
             let mut voice_output = AudioBuffer {
                 channels,
                 frames,
-                data: &mut buf.temp_voice[..channels * frames],
+                data: &mut buf.data[offset..offset + voice_size],
             };
 
             let silent = match &mut self.nodes[idx].instance {
@@ -459,14 +516,6 @@ impl Graph {
 
             if !silent {
                 all_silent = false;
-                // Mix voice output into node output
-                let buf = &mut self.buffers[idx];
-                for (out, temp) in buf.data[..channels * frames]
-                    .iter_mut()
-                    .zip(&buf.temp_voice[..channels * frames])
-                {
-                    *out += temp;
-                }
             }
         }
 

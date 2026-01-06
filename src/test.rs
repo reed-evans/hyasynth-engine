@@ -54,9 +54,9 @@ pub fn end_to_end_test() {
     // Setting parameters (session_set_param())
     // --------------------------------
     session_handle.set_param(env, params::ATTACK, 0.01);
-    session_handle.set_param(env, params::DECAY, 0.01);
+    session_handle.set_param(env, params::DECAY, 0.1);
     session_handle.set_param(env, params::SUSTAIN, 0.8);
-    session_handle.set_param(env, params::RELEASE, 0.021);
+    session_handle.set_param(env, params::RELEASE, 0.1);
 
     // --------------------------------
     // Compiling graph (engine_compile_graph())
@@ -134,13 +134,14 @@ pub fn end_to_end_test() {
         }
 
         offset += chunk_frames;
-        // offset = 0 -> 512 -> 1536 -> | note off| -> 2048 -> 2560
-        // if offset > max_block_size * 2 {
+        // offset = 0 -> 512 -> 1024 -> 1536 -> | note off| -> 2048 -> 2560
+        // if offset == max_block_size * 3 {
         //     session_handle.note_off(60);
         // }
 
         if offset == max_block_size * 3 {
             session_handle.note_on(63, 0.8);
+            engine_handle.process_commands();
         }
     }
 

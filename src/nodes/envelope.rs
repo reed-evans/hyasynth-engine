@@ -141,8 +141,12 @@ impl Node for AdsrEnvelope {
 
         for i in 0..ctx.frames {
             let env = self.process_sample();
-            self.smooth_level += (env - self.smooth_level) * coeff;
-            let gain = self.smooth_level.sqrt();
+            let gain = if env > 0.0 { 
+                self.smooth_level += (env - self.smooth_level) * coeff;
+                self.smooth_level.sqrt().min(1.0)
+            } else { 
+                0.0 
+            };
 
             if gain > 0.0 {
                 produced_sound = true;
