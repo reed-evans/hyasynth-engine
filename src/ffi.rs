@@ -600,6 +600,15 @@ pub unsafe extern "C" fn engine_update_position(engine: *mut HyasynthEngine, pos
     unsafe { (*engine).inner.update_sample_position(position) };
 }
 
+/// Update the beat position (called from audio thread).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn engine_update_beat_position(engine: *mut HyasynthEngine, position: f64) {
+    if engine.is_null() {
+        return;
+    }
+    unsafe { (*engine).inner.update_beat_position(position) };
+}
+
 /// Update the active voice count (called from audio thread).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn engine_update_voices(engine: *mut HyasynthEngine, count: u32) {
@@ -721,6 +730,14 @@ pub unsafe extern "C" fn engine_render(
         offset += chunk_frames;
     }
 
+    // Sync position readback from scheduler
+    engine_wrapper
+        .inner
+        .update_sample_position(engine_wrapper.scheduler.sample_position());
+    engine_wrapper
+        .inner
+        .update_beat_position(engine_wrapper.scheduler.beat_position());
+
     // Sync readback state for UI
     engine_wrapper.inner.sync_readback();
 }
@@ -797,6 +814,14 @@ pub unsafe extern "C" fn engine_render_interleaved(
 
         offset += chunk_frames;
     }
+
+    // Sync position readback from scheduler
+    engine_wrapper
+        .inner
+        .update_sample_position(engine_wrapper.scheduler.sample_position());
+    engine_wrapper
+        .inner
+        .update_beat_position(engine_wrapper.scheduler.beat_position());
 
     engine_wrapper.inner.sync_readback();
 }

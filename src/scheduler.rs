@@ -195,6 +195,11 @@ impl Scheduler {
         self.musical_transport.beat_position()
     }
 
+    /// Get current sample position
+    pub fn sample_position(&self) -> u64 {
+        self.musical_transport.sample_position()
+    }
+
     /// Set tempo
     pub fn set_bpm(&mut self, bpm: f64) {
         self.musical_transport.set_bpm(bpm);

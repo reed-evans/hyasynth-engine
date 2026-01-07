@@ -74,6 +74,8 @@ pub struct EngineHandle {
 /// Uses atomics for frequently updated values.
 struct SharedReadback {
     sample_position: AtomicU64,
+    /// Beat position stored as f64 bits (no AtomicF64 in std)
+    beat_position_bits: AtomicU64,
     active_voices: AtomicU64,
     running: AtomicBool,
     // Peak meters would use AtomicU32 with f32::to_bits/from_bits
@@ -83,6 +85,7 @@ impl SharedReadback {
     fn new() -> Self {
         Self {
             sample_position: AtomicU64::new(0),
+            beat_position_bits: AtomicU64::new(0.0_f64.to_bits()),
             active_voices: AtomicU64::new(0),
             running: AtomicBool::new(false),
         }
@@ -374,12 +377,14 @@ impl SessionHandle {
 
     /// Get the current engine readback state.
     ///
-    /// Note: `beat_position`, `cpu_load`, and `output_peaks` are not yet implemented.
+    /// Note: `cpu_load` and `output_peaks` are not yet implemented.
     /// They require additional atomic storage in SharedReadback.
     pub fn readback(&self) -> EngineReadback {
         EngineReadback {
             sample_position: self.readback.sample_position.load(Ordering::Relaxed),
-            beat_position: 0.0,
+            beat_position: f64::from_bits(
+                self.readback.beat_position_bits.load(Ordering::Relaxed),
+            ),
             cpu_load: 0.0,
             active_voices: self.readback.active_voices.load(Ordering::Relaxed) as usize,
             output_peaks: [0.0, 0.0],
@@ -643,6 +648,13 @@ impl EngineHandle {
     /// Update the sample position readback (called every block).
     pub fn update_sample_position(&self, pos: u64) {
         self.readback.sample_position.store(pos, Ordering::Relaxed);
+    }
+
+    /// Update the beat position readback (called every block).
+    pub fn update_beat_position(&self, pos: f64) {
+        self.readback
+            .beat_position_bits
+            .store(pos.to_bits(), Ordering::Relaxed);
     }
 
     /// Update the active voice count readback.
