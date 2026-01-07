@@ -32,7 +32,7 @@ impl Default for Transport {
         Self {
             sample_pos: 0,
             bpm: 120.0,
-            sample_rate: 44_100.0,
+            sample_rate: 48_000.0,
         }
     }
 }
