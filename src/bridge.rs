@@ -225,10 +225,9 @@ impl SessionHandle {
                 velocity,
             } => {
                 use crate::state::NoteDef;
-                self.session.arrangement.add_note_to_clip(
-                    *clip_id,
-                    NoteDef::new(*start, *duration, *note, *velocity),
-                );
+                self.session
+                    .arrangement
+                    .add_note_to_clip(*clip_id, NoteDef::new(*start, *duration, *note, *velocity));
             }
             Command::RemoveNoteFromClip {
                 clip_id,
@@ -264,7 +263,9 @@ impl SessionHandle {
                 self.session.arrangement.delete_track(*track_id);
             }
             Command::SetTrackVolume { track_id, volume } => {
-                self.session.arrangement.set_track_volume(*track_id, *volume);
+                self.session
+                    .arrangement
+                    .set_track_volume(*track_id, *volume);
             }
             Command::SetTrackPan { track_id, pan } => {
                 self.session.arrangement.set_track_pan(*track_id, *pan);
@@ -382,9 +383,7 @@ impl SessionHandle {
     pub fn readback(&self) -> EngineReadback {
         EngineReadback {
             sample_position: self.readback.sample_position.load(Ordering::Relaxed),
-            beat_position: f64::from_bits(
-                self.readback.beat_position_bits.load(Ordering::Relaxed),
-            ),
+            beat_position: f64::from_bits(self.readback.beat_position_bits.load(Ordering::Relaxed)),
             cpu_load: 0.0,
             active_voices: self.readback.active_voices.load(Ordering::Relaxed) as usize,
             output_peaks: [0.0, 0.0],
@@ -466,7 +465,10 @@ impl SessionHandle {
     ///
     /// Returns (node_id, param_id, value) tuples for the track's mixer nodes.
     /// Use this for real-time track volume/pan/mute updates.
-    pub fn get_track_param_updates(&self, track_id: crate::state::TrackId) -> Vec<(NodeId, u32, f32)> {
+    pub fn get_track_param_updates(
+        &self,
+        track_id: crate::state::TrackId,
+    ) -> Vec<(NodeId, u32, f32)> {
         self.session.sync_track_params(track_id)
     }
 

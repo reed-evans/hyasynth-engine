@@ -1,16 +1,16 @@
-use crate::state::Session;
-use crate::graph::Graph;
-use crate::voice_allocator::VoiceAllocator;
+use crate::bridge::create_bridge;
 use crate::engine::Engine;
-use crate::bridge::{create_bridge};
-use crate::scheduler::Scheduler;
-use crate::plan_handoff::PlanHandoff;
 use crate::execution_plan::ExecutionPlan;
+use crate::graph::Graph;
 use crate::node_factory::NodeRegistry;
-use crate::nodes::register_standard_nodes;
-use crate::state::Command;
 use crate::nodes::node_types;
 use crate::nodes::params;
+use crate::nodes::register_standard_nodes;
+use crate::plan_handoff::PlanHandoff;
+use crate::scheduler::Scheduler;
+use crate::state::Command;
+use crate::state::Session;
+use crate::voice_allocator::VoiceAllocator;
 
 pub const max_block_size: usize = 512;
 pub const max_voices: usize = 16;
@@ -46,8 +46,18 @@ pub fn end_to_end_test() {
     let osc = session_handle.add_node(node_types::SINE_OSC, 0.0, 0.0);
     let env = session_handle.add_node(node_types::ADSR_ENV, 0.0, 0.0);
     let out = session_handle.add_node(node_types::OUTPUT, 0.0, 0.0);
-    session_handle.send(Command::Connect { source_node: osc, source_port: 0, dest_node: env, dest_port: 0 });
-    session_handle.send(Command::Connect { source_node: env, source_port: 0, dest_node: out, dest_port: 0 });
+    session_handle.send(Command::Connect {
+        source_node: osc,
+        source_port: 0,
+        dest_node: env,
+        dest_port: 0,
+    });
+    session_handle.send(Command::Connect {
+        source_node: env,
+        source_port: 0,
+        dest_node: out,
+        dest_port: 0,
+    });
     session_handle.send(Command::SetOutputNode { node_id: out });
 
     // --------------------------------
@@ -117,7 +127,8 @@ pub fn end_to_end_test() {
             if output.len() >= chunk_frames * 2 {
                 // Stereo output - planar format: first half is left, second half is right
                 out_left[offset..offset + chunk_frames].copy_from_slice(&output[..chunk_frames]);
-                out_right[offset..offset + chunk_frames].copy_from_slice(&output[chunk_frames..chunk_frames * 2]);
+                out_right[offset..offset + chunk_frames]
+                    .copy_from_slice(&output[chunk_frames..chunk_frames * 2]);
             } else if output.len() >= chunk_frames {
                 // Mono output - copy to both channels
                 out_left[offset..offset + chunk_frames].copy_from_slice(&output[..chunk_frames]);

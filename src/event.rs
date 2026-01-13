@@ -13,17 +13,10 @@ use crate::state::AudioPoolId;
 #[derive(Debug, Clone)]
 pub enum MusicalEvent {
     /// Note on (global, for live playing).
-    NoteOn {
-        beat: f64,
-        note: u8,
-        velocity: f32,
-    },
+    NoteOn { beat: f64, note: u8, velocity: f32 },
 
     /// Note off (global).
-    NoteOff {
-        beat: f64,
-        note: u8,
-    },
+    NoteOff { beat: f64, note: u8 },
 
     /// Note on targeted to a specific node (for clip playback).
     NoteOnTarget {
@@ -34,11 +27,7 @@ pub enum MusicalEvent {
     },
 
     /// Note off targeted to a specific node.
-    NoteOffTarget {
-        beat: f64,
-        node_id: u32,
-        note: u8,
-    },
+    NoteOffTarget { beat: f64, node_id: u32, note: u8 },
 
     /// Parameter change.
     ParamChange {

@@ -19,10 +19,10 @@ pub enum LfoWaveform {
 /// Outputs a control signal that can modulate other parameters.
 /// The output range is -1.0 to 1.0, scaled by the depth parameter.
 pub struct Lfo {
-    rate: f32,        // Hz
-    depth: f32,       // 0.0 - 1.0
+    rate: f32,  // Hz
+    depth: f32, // 0.0 - 1.0
     waveform: LfoWaveform,
-    phase: f32,       // 0.0 - 1.0
+    phase: f32, // 0.0 - 1.0
     sync_to_transport: bool,
 
     // For sample & hold
@@ -70,7 +70,11 @@ impl Lfo {
             }
             LfoWaveform::Saw => 2.0 * self.phase - 1.0,
             LfoWaveform::Square => {
-                if self.phase < 0.5 { 1.0 } else { -1.0 }
+                if self.phase < 0.5 {
+                    1.0
+                } else {
+                    -1.0
+                }
             }
             LfoWaveform::SampleAndHold => {
                 // Update S&H value when phase wraps
@@ -97,7 +101,7 @@ impl Node for Lfo {
 
     fn set_param(&mut self, param_id: u32, value: f32) {
         match param_id {
-            0 => self.rate = value.max(0.001),      // Rate in Hz
+            0 => self.rate = value.max(0.001),       // Rate in Hz
             1 => self.depth = value.clamp(0.0, 1.0), // Depth
             2 => {
                 // Waveform (0=sine, 1=tri, 2=saw, 3=square, 4=s&h)
@@ -145,4 +149,3 @@ impl Node for Lfo {
         self.sh_last_phase = 0.0;
     }
 }
-

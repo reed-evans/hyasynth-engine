@@ -39,7 +39,7 @@ impl Voice {
     #[inline]
     pub fn clear_triggers(&mut self) {
         self.trigger = false;
-        // self.release = false; // This shouldn't be cleared here. Instead it should be cleared when deactivate() is called. However nothing is calling deactivate() right now. 
+        // self.release = false; // This shouldn't be cleared here. Instead it should be cleared when deactivate() is called. However nothing is calling deactivate() right now.
     }
 
     /// Trigger note on

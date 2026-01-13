@@ -297,4 +297,3 @@ impl GraphDef {
             .filter(move |c| c.source_node == node_id)
     }
 }
-

@@ -101,8 +101,10 @@ impl AudioPool {
     ) -> AudioPoolId {
         let id = self.next_id;
         self.next_id += 1;
-        self.entries
-            .insert(id, AudioPoolEntry::new(id, name, sample_rate, channels, samples));
+        self.entries.insert(
+            id,
+            AudioPoolEntry::new(id, name, sample_rate, channels, samples),
+        );
         id
     }
 
@@ -409,7 +411,8 @@ impl ClipDef {
 
     /// Get notes in a time range (for backwards compatibility).
     pub fn notes_in_range(&self, start: f64, end: f64) -> impl Iterator<Item = &NoteDef> {
-        self.notes().filter(move |n| n.start < end && n.end() > start)
+        self.notes()
+            .filter(move |n| n.start < end && n.end() > start)
     }
 
     /// Get audio regions in a time range.
@@ -453,4 +456,3 @@ impl ClipDef {
         self.events.iter().filter(|e| e.is_audio()).count()
     }
 }
-

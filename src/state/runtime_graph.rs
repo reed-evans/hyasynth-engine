@@ -287,4 +287,3 @@ mod tests {
         assert!(graph.nodes.contains_key(&track_pan_node(1)));
     }
 }
-

@@ -19,7 +19,7 @@ use crate::scheduler::Scheduler;
 use crate::state::{EngineReadback, Session};
 use crate::voice_allocator::VoiceAllocator;
 
-use log::{debug, info, warn, error, LevelFilter};
+use log::{LevelFilter, debug, error, info, warn};
 use oslog::OsLogger;
 
 // Default audio configuration
@@ -44,7 +44,7 @@ const LOG_SUBSYSTEM: &str = "com.hyasynth.engine";
 #[unsafe(no_mangle)]
 pub extern "C" fn hyasynth_init_logger() {
     OsLogger::new(LOG_SUBSYSTEM)
-        .level_filter(LevelFilter::Debug)  // Set global minimum level
+        .level_filter(LevelFilter::Debug) // Set global minimum level
         .init()
         .ok();
 }
@@ -397,7 +397,10 @@ pub unsafe extern "C" fn session_set_param(
     param_id: u32,
     value: f32,
 ) {
-    info!("session_set_param: node_id={}, param_id={}, value={}", node_id, param_id, value);
+    info!(
+        "session_set_param: node_id={}, param_id={}, value={}",
+        node_id, param_id, value
+    );
     if session.is_null() {
         return;
     }
@@ -488,11 +491,7 @@ pub unsafe extern "C" fn session_seek(session: *mut HyasynthSession, beat: f64) 
 
 /// Send a MIDI note on.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn session_note_on(
-    session: *mut HyasynthSession,
-    note: u8,
-    velocity: f32,
-) {
+pub unsafe extern "C" fn session_note_on(session: *mut HyasynthSession, note: u8, velocity: f32) {
     if session.is_null() {
         return;
     }
@@ -514,9 +513,7 @@ pub unsafe extern "C" fn session_note_off(session: *mut HyasynthSession, note: u
 
 /// Get the current engine readback state.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn session_get_readback(
-    session: *const HyasynthSession,
-) -> HyasynthReadback {
+pub unsafe extern "C" fn session_get_readback(session: *const HyasynthSession) -> HyasynthReadback {
     if session.is_null() {
         return HyasynthReadback {
             sample_position: 0,
@@ -615,7 +612,11 @@ pub unsafe extern "C" fn engine_update_voices(engine: *mut HyasynthEngine, count
     if engine.is_null() {
         return;
     }
-    unsafe { (*engine).inner.update_active_voices_readback(count as usize) };
+    unsafe {
+        (*engine)
+            .inner
+            .update_active_voices_readback(count as usize)
+    };
 }
 
 /// Set the running state (called from audio thread).
@@ -711,7 +712,8 @@ pub unsafe extern "C" fn engine_render(
             if output.len() >= chunk_frames * 2 {
                 // Stereo output - planar format: first half is left, second half is right
                 out_left[offset..offset + chunk_frames].copy_from_slice(&output[..chunk_frames]);
-                out_right[offset..offset + chunk_frames].copy_from_slice(&output[chunk_frames..chunk_frames * 2]);
+                out_right[offset..offset + chunk_frames]
+                    .copy_from_slice(&output[chunk_frames..chunk_frames * 2]);
             } else if output.len() >= chunk_frames {
                 // Mono output - copy to both channels
                 out_left[offset..offset + chunk_frames].copy_from_slice(&output[..chunk_frames]);
@@ -796,7 +798,7 @@ pub unsafe extern "C" fn engine_render_interleaved(
             if engine_output.len() >= chunk_frames * 2 {
                 // Convert planar to interleaved
                 for i in 0..chunk_frames {
-                    out_chunk[i * 2] = engine_output[i];                    // Left from first half
+                    out_chunk[i * 2] = engine_output[i]; // Left from first half
                     out_chunk[i * 2 + 1] = engine_output[chunk_frames + i]; // Right from second half
                 }
             } else if engine_output.len() >= chunk_frames {
@@ -865,7 +867,13 @@ pub unsafe extern "C" fn engine_prepare(engine: *mut HyasynthEngine, sample_rate
     if engine.is_null() {
         return;
     }
-    unsafe { (*engine).inner.engine_mut().graph_mut().prepare(sample_rate) };
+    unsafe {
+        (*engine)
+            .inner
+            .engine_mut()
+            .graph_mut()
+            .prepare(sample_rate)
+    };
 }
 
 /// Reset the engine state.
@@ -956,7 +964,13 @@ pub unsafe extern "C" fn session_create_clip(
     } else {
         unsafe { CStr::from_ptr(name).to_str().unwrap_or("Clip").to_string() }
     };
-    unsafe { (*session).inner.session_mut().arrangement.create_clip(name_str, length) }
+    unsafe {
+        (*session)
+            .inner
+            .session_mut()
+            .arrangement
+            .create_clip(name_str, length)
+    }
 }
 
 /// Delete a clip.
@@ -965,7 +979,13 @@ pub unsafe extern "C" fn session_delete_clip(session: *mut HyasynthSession, clip
     if session.is_null() {
         return;
     }
-    unsafe { (*session).inner.session_mut().arrangement.delete_clip(clip_id) };
+    unsafe {
+        (*session)
+            .inner
+            .session_mut()
+            .arrangement
+            .delete_clip(clip_id)
+    };
 }
 
 /// Add a note to a clip.
@@ -983,10 +1003,11 @@ pub unsafe extern "C" fn session_add_note_to_clip(
     }
     use crate::state::NoteDef;
     unsafe {
-        (*session).inner.session_mut().arrangement.add_note_to_clip(
-            clip_id,
-            NoteDef::new(start, duration, note, velocity),
-        )
+        (*session)
+            .inner
+            .session_mut()
+            .arrangement
+            .add_note_to_clip(clip_id, NoteDef::new(start, duration, note, velocity))
     };
 }
 
@@ -997,7 +1018,12 @@ pub unsafe extern "C" fn session_clear_clip(session: *mut HyasynthSession, clip_
         return;
     }
     unsafe {
-        if let Some(clip) = (*session).inner.session_mut().arrangement.get_clip_mut(clip_id) {
+        if let Some(clip) = (*session)
+            .inner
+            .session_mut()
+            .arrangement
+            .get_clip_mut(clip_id)
+        {
             clip.clear();
         }
     };
@@ -1070,17 +1096,14 @@ pub unsafe extern "C" fn session_add_audio_to_pool(
         unsafe { CStr::from_ptr(name).to_str().unwrap_or("Audio").to_string() }
     };
 
-    let samples_vec = unsafe {
-        std::slice::from_raw_parts(samples, num_samples as usize).to_vec()
-    };
+    let samples_vec = unsafe { std::slice::from_raw_parts(samples, num_samples as usize).to_vec() };
 
     unsafe {
-        (*session).inner.session_mut().arrangement.add_audio_to_pool(
-            name_str,
-            sample_rate,
-            channels as usize,
-            samples_vec,
-        )
+        (*session)
+            .inner
+            .session_mut()
+            .arrangement
+            .add_audio_to_pool(name_str, sample_rate, channels as usize, samples_vec)
     }
 }
 
@@ -1093,7 +1116,13 @@ pub unsafe extern "C" fn session_remove_audio_from_pool(
     if session.is_null() {
         return;
     }
-    unsafe { (*session).inner.session_mut().arrangement.remove_audio(audio_id) };
+    unsafe {
+        (*session)
+            .inner
+            .session_mut()
+            .arrangement
+            .remove_audio(audio_id)
+    };
 }
 
 /// Add an audio region to a clip.
@@ -1183,7 +1212,13 @@ pub unsafe extern "C" fn session_create_track(
     } else {
         unsafe { CStr::from_ptr(name).to_str().unwrap_or("Track").to_string() }
     };
-    unsafe { (*session).inner.session_mut().arrangement.create_track(name_str) }
+    unsafe {
+        (*session)
+            .inner
+            .session_mut()
+            .arrangement
+            .create_track(name_str)
+    }
 }
 
 /// Delete a track.
@@ -1192,7 +1227,13 @@ pub unsafe extern "C" fn session_delete_track(session: *mut HyasynthSession, tra
     if session.is_null() {
         return;
     }
-    unsafe { (*session).inner.session_mut().arrangement.delete_track(track_id) };
+    unsafe {
+        (*session)
+            .inner
+            .session_mut()
+            .arrangement
+            .delete_track(track_id)
+    };
 }
 
 /// Set track volume (0.0 - 1.0).
@@ -1205,7 +1246,13 @@ pub unsafe extern "C" fn session_set_track_volume(
     if session.is_null() {
         return;
     }
-    unsafe { (*session).inner.session_mut().arrangement.set_track_volume(track_id, volume) };
+    unsafe {
+        (*session)
+            .inner
+            .session_mut()
+            .arrangement
+            .set_track_volume(track_id, volume)
+    };
 }
 
 /// Set track pan (-1.0 to 1.0).
@@ -1218,7 +1265,13 @@ pub unsafe extern "C" fn session_set_track_pan(
     if session.is_null() {
         return;
     }
-    unsafe { (*session).inner.session_mut().arrangement.set_track_pan(track_id, pan) };
+    unsafe {
+        (*session)
+            .inner
+            .session_mut()
+            .arrangement
+            .set_track_pan(track_id, pan)
+    };
 }
 
 /// Set track mute.
@@ -1231,7 +1284,13 @@ pub unsafe extern "C" fn session_set_track_mute(
     if session.is_null() {
         return;
     }
-    unsafe { (*session).inner.session_mut().arrangement.set_track_mute(track_id, mute) };
+    unsafe {
+        (*session)
+            .inner
+            .session_mut()
+            .arrangement
+            .set_track_mute(track_id, mute)
+    };
 }
 
 /// Set track solo.
@@ -1244,7 +1303,13 @@ pub unsafe extern "C" fn session_set_track_solo(
     if session.is_null() {
         return;
     }
-    unsafe { (*session).inner.session_mut().arrangement.set_track_solo(track_id, solo) };
+    unsafe {
+        (*session)
+            .inner
+            .session_mut()
+            .arrangement
+            .set_track_solo(track_id, solo)
+    };
 }
 
 /// Set track target node (the node this track sends MIDI to).
@@ -1257,8 +1322,18 @@ pub unsafe extern "C" fn session_set_track_target(
     if session.is_null() {
         return;
     }
-    let target = if node_id == u32::MAX { None } else { Some(node_id) };
-    unsafe { (*session).inner.session_mut().arrangement.set_track_target(track_id, target) };
+    let target = if node_id == u32::MAX {
+        None
+    } else {
+        Some(node_id)
+    };
+    unsafe {
+        (*session)
+            .inner
+            .session_mut()
+            .arrangement
+            .set_track_target(track_id, target)
+    };
 }
 
 /// Get the number of tracks.
@@ -1289,7 +1364,13 @@ pub unsafe extern "C" fn session_create_scene(
     } else {
         unsafe { CStr::from_ptr(name).to_str().unwrap_or("Scene").to_string() }
     };
-    unsafe { (*session).inner.session_mut().arrangement.create_scene(name_str) }
+    unsafe {
+        (*session)
+            .inner
+            .session_mut()
+            .arrangement
+            .create_scene(name_str)
+    }
 }
 
 /// Delete a scene.
@@ -1298,7 +1379,13 @@ pub unsafe extern "C" fn session_delete_scene(session: *mut HyasynthSession, sce
     if session.is_null() {
         return;
     }
-    unsafe { (*session).inner.session_mut().arrangement.delete_scene(scene_id) };
+    unsafe {
+        (*session)
+            .inner
+            .session_mut()
+            .arrangement
+            .delete_scene(scene_id)
+    };
 }
 
 /// Launch a scene (trigger all clips in that row).
@@ -1307,7 +1394,13 @@ pub unsafe extern "C" fn session_launch_scene(session: *mut HyasynthSession, sce
     if session.is_null() {
         return;
     }
-    unsafe { (*session).inner.session_mut().arrangement.launch_scene(scene_index as usize) };
+    unsafe {
+        (*session)
+            .inner
+            .session_mut()
+            .arrangement
+            .launch_scene(scene_index as usize)
+    };
 }
 
 /// Launch a single clip on a track.
@@ -1320,7 +1413,13 @@ pub unsafe extern "C" fn session_launch_clip(
     if session.is_null() {
         return;
     }
-    unsafe { (*session).inner.session_mut().arrangement.launch_clip(track_id, clip_id) };
+    unsafe {
+        (*session)
+            .inner
+            .session_mut()
+            .arrangement
+            .launch_clip(track_id, clip_id)
+    };
 }
 
 /// Stop a clip on a track.
@@ -1329,7 +1428,13 @@ pub unsafe extern "C" fn session_stop_clip(session: *mut HyasynthSession, track_
     if session.is_null() {
         return;
     }
-    unsafe { (*session).inner.session_mut().arrangement.stop_clip(track_id) };
+    unsafe {
+        (*session)
+            .inner
+            .session_mut()
+            .arrangement
+            .stop_clip(track_id)
+    };
 }
 
 /// Stop all clips.
@@ -1361,13 +1466,17 @@ pub unsafe extern "C" fn session_set_clip_slot(
     if session.is_null() {
         return;
     }
-    let clip = if clip_id == u32::MAX { None } else { Some(clip_id) };
+    let clip = if clip_id == u32::MAX {
+        None
+    } else {
+        Some(clip_id)
+    };
     unsafe {
-        (*session)
-            .inner
-            .session_mut()
-            .arrangement
-            .set_clip_slot(track_id, scene_index as usize, clip)
+        (*session).inner.session_mut().arrangement.set_clip_slot(
+            track_id,
+            scene_index as usize,
+            clip,
+        )
     };
 }
 

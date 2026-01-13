@@ -80,7 +80,9 @@ impl SvfFilter {
 
     fn recalc_coeffs(&mut self) {
         // Clamp cutoff to valid range
-        let cutoff = self.cutoff.clamp(20.0, (self.last_sample_rate as f32 * 0.49).max(20.0));
+        let cutoff = self
+            .cutoff
+            .clamp(20.0, (self.last_sample_rate as f32 * 0.49).max(20.0));
 
         // Resonance clamped to prevent self-oscillation issues
         let resonance = self.resonance.clamp(0.0, 0.99);
@@ -180,4 +182,3 @@ pub type LowpassFilter = SvfFilter;
 pub type HighpassFilter = SvfFilter;
 pub type BandpassFilter = SvfFilter;
 pub type NotchFilter = SvfFilter;
-

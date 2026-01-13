@@ -122,19 +122,19 @@ impl AudioVoice {
 pub struct AudioPlayerNode {
     /// Available audio data (loaded from pool).
     audio_data: HashMap<AudioPoolId, SharedAudioData>,
-    
+
     /// Active playback voices.
     voices: Vec<Option<AudioVoice>>,
-    
+
     /// Number of output channels.
     channels: usize,
-    
+
     /// Current sample rate.
     sample_rate: f64,
-    
+
     /// Master gain.
     gain: f32,
-    
+
     /// Scratch buffer for mixing.
     scratch: Vec<f32>,
 }
@@ -189,7 +189,10 @@ impl AudioPlayerNode {
         };
 
         // Find an empty voice slot
-        let slot = self.voices.iter_mut().find(|v| v.is_none() || !v.as_ref().unwrap().active);
+        let slot = self
+            .voices
+            .iter_mut()
+            .find(|v| v.is_none() || !v.as_ref().unwrap().active);
 
         if let Some(slot) = slot {
             *slot = Some(AudioVoice::new(
@@ -222,12 +225,17 @@ impl AudioPlayerNode {
 
     /// Check if any audio is playing.
     pub fn is_playing(&self) -> bool {
-        self.voices.iter().any(|v| v.as_ref().map(|v| v.active).unwrap_or(false))
+        self.voices
+            .iter()
+            .any(|v| v.as_ref().map(|v| v.active).unwrap_or(false))
     }
 
     /// Get the number of active voices.
     pub fn active_voice_count(&self) -> usize {
-        self.voices.iter().filter(|v| v.as_ref().map(|v| v.active).unwrap_or(false)).count()
+        self.voices
+            .iter()
+            .filter(|v| v.as_ref().map(|v| v.active).unwrap_or(false))
+            .count()
     }
 }
 
@@ -333,7 +341,7 @@ mod tests {
         let sample_rate = 48000.0;
         let frames = 48000; // 1 second
         let channels = 2;
-        
+
         let mut samples = Vec::with_capacity(frames * channels);
         for i in 0..frames {
             let t = i as f32 / sample_rate as f32;
@@ -369,7 +377,7 @@ mod tests {
         let ctx = ProcessContext::new(512, 48000.0, 0, 120.0);
         let mut output_data = vec![0.0f32; 512 * 2];
         let mut output = AudioBuffer::new(&mut output_data, 2);
-        
+
         player.process(&ctx, &[], &mut output);
 
         // Output should have audio data
@@ -388,9 +396,8 @@ mod tests {
         assert!(player.is_playing());
 
         player.stop_audio(1);
-        
+
         // Voice is marked inactive but still in slot
         assert!(!player.is_playing());
     }
 }
-

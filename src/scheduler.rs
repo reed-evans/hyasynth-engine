@@ -148,12 +148,10 @@ impl Scheduler {
                 velocity: *velocity,
             }),
 
-            MusicalEvent::NoteOffTarget { node_id, note, .. } => {
-                Some(Event::NoteOffTarget {
-                    node_id: *node_id,
-                    note: *note,
-                })
-            }
+            MusicalEvent::NoteOffTarget { node_id, note, .. } => Some(Event::NoteOffTarget {
+                node_id: *node_id,
+                note: *note,
+            }),
 
             MusicalEvent::ParamChange {
                 node_id,

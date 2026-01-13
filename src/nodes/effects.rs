@@ -256,9 +256,9 @@ impl Node for MixerNode {
 
 /// Simple stereo delay effect.
 pub struct DelayNode {
-    delay_time: f32,    // In seconds
-    feedback: f32,      // 0.0 - 1.0
-    mix: f32,           // Dry/wet mix (0.0 = dry, 1.0 = wet)
+    delay_time: f32, // In seconds
+    feedback: f32,   // 0.0 - 1.0
+    mix: f32,        // Dry/wet mix (0.0 = dry, 1.0 = wet)
 
     buffer_l: Vec<f32>,
     buffer_r: Vec<f32>,
@@ -359,9 +359,9 @@ impl Node for DelayNode {
 
     fn set_param(&mut self, param_id: u32, value: f32) {
         match param_id {
-            0 => self.delay_time = value.clamp(0.001, 2.0),  // Time in seconds
-            1 => self.feedback = value.clamp(0.0, 0.99),     // Feedback
-            2 => self.mix = value.clamp(0.0, 1.0),           // Mix
+            0 => self.delay_time = value.clamp(0.001, 2.0), // Time in seconds
+            1 => self.feedback = value.clamp(0.0, 0.99),    // Feedback
+            2 => self.mix = value.clamp(0.0, 1.0),          // Mix
             _ => {}
         }
     }
@@ -381,14 +381,14 @@ impl Node for DelayNode {
 ///
 /// Uses 4 parallel comb filters and 2 series allpass filters.
 pub struct ReverbNode {
-    decay: f32,         // Decay time (0.0 - 1.0)
-    damping: f32,       // High frequency damping (0.0 - 1.0)
-    mix: f32,           // Dry/wet mix
+    decay: f32,   // Decay time (0.0 - 1.0)
+    damping: f32, // High frequency damping (0.0 - 1.0)
+    mix: f32,     // Dry/wet mix
 
     // Comb filter buffers (4 parallel)
     comb_buffers: [Vec<f32>; 4],
     comb_pos: [usize; 4],
-    comb_filter: [f32; 4],  // Low-pass filtered feedback
+    comb_filter: [f32; 4], // Low-pass filtered feedback
 
     // Allpass filter buffers (2 series)
     allpass_buffers: [Vec<f32>; 2],
@@ -442,7 +442,8 @@ impl ReverbNode {
         let delayed = self.comb_buffers[index][read_pos];
 
         // Low-pass filtered feedback for damping
-        self.comb_filter[index] = delayed * (1.0 - self.damping) + self.comb_filter[index] * self.damping;
+        self.comb_filter[index] =
+            delayed * (1.0 - self.damping) + self.comb_filter[index] * self.damping;
 
         let feedback = self.comb_filter[index] * self.decay;
         self.comb_buffers[index][self.comb_pos[index]] = input + feedback;
@@ -528,7 +529,8 @@ impl Node for ReverbNode {
                 % self.comb_buffers[c].len();
         }
         for a in 0..2 {
-            self.allpass_pos[a] = (self.allpass_pos[a] + self.allpass_buffers[a].len() - ctx.frames)
+            self.allpass_pos[a] = (self.allpass_pos[a] + self.allpass_buffers[a].len()
+                - ctx.frames)
                 % self.allpass_buffers[a].len();
         }
 
@@ -560,9 +562,9 @@ impl Node for ReverbNode {
 
     fn set_param(&mut self, param_id: u32, value: f32) {
         match param_id {
-            0 => self.decay = value.clamp(0.0, 0.99),    // Decay
-            1 => self.damping = value.clamp(0.0, 1.0),   // Damping
-            2 => self.mix = value.clamp(0.0, 1.0),       // Mix
+            0 => self.decay = value.clamp(0.0, 0.99),  // Decay
+            1 => self.damping = value.clamp(0.0, 1.0), // Damping
+            2 => self.mix = value.clamp(0.0, 1.0),     // Mix
             _ => {}
         }
     }

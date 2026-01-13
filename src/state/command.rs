@@ -157,7 +157,10 @@ pub enum Command {
     SetTrackArmed { track_id: TrackId, armed: bool },
 
     /// Set track target node.
-    SetTrackTarget { track_id: TrackId, node_id: Option<u32> },
+    SetTrackTarget {
+        track_id: TrackId,
+        node_id: Option<u32>,
+    },
 
     /// Assign a clip to a track's clip slot.
     SetClipSlot {

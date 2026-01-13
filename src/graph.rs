@@ -214,7 +214,12 @@ impl Graph {
             silent: false,
         });
 
-        self.buffers.push(NodeBuffer::new(channels, self.max_block, is_per_voice, self.max_voices));
+        self.buffers.push(NodeBuffer::new(
+            channels,
+            self.max_block,
+            is_per_voice,
+            self.max_voices,
+        ));
 
         idx
     }
@@ -509,7 +514,11 @@ impl Graph {
                 }
             } else {
                 // Voice is still active - remove from deactivation list if present
-                if let Some(pos) = self.voices_to_deactivate.iter().position(|&v| v == voice_id) {
+                if let Some(pos) = self
+                    .voices_to_deactivate
+                    .iter()
+                    .position(|&v| v == voice_id)
+                {
                     self.voices_to_deactivate.swap_remove(pos);
                 }
             }
@@ -551,7 +560,8 @@ impl Graph {
         gain: f32,
     ) {
         if let Some(node) = self.nodes.get_mut(node_idx) {
-            node.instance.start_audio(audio_id, start_sample, duration_samples, gain);
+            node.instance
+                .start_audio(audio_id, start_sample, duration_samples, gain);
         }
     }
 
@@ -577,7 +587,11 @@ impl Graph {
     }
 
     /// Stop audio playback on a node by session node ID.
-    pub fn stop_audio_by_id(&mut self, node_id: crate::state::NodeId, audio_id: crate::state::AudioPoolId) {
+    pub fn stop_audio_by_id(
+        &mut self,
+        node_id: crate::state::NodeId,
+        audio_id: crate::state::AudioPoolId,
+    ) {
         if let Some(&idx) = self.id_to_index.get(&node_id) {
             self.stop_audio(idx, audio_id);
         }

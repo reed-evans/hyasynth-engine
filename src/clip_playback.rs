@@ -515,4 +515,3 @@ mod tests {
         assert!(!note_ons.is_empty(), "Should generate note-on events");
     }
 }
-

@@ -7,7 +7,7 @@ use crate::node::{Node, ProcessContext};
 
 use super::params;
 
-const PHASE_START: f32 = std::f32::consts::PI/2.0;
+const PHASE_START: f32 = std::f32::consts::PI / 2.0;
 
 // ═══════════════════════════════════════════════════════════════════
 // Sine Oscillator
