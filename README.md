@@ -26,8 +26,8 @@ engine.process_plan(&plan);
 ### How To Use With Xcode
 ```bash
 # Build for all targets
-cargo build --release --target aarch64-apple-ios
-cargo build --release --target aarch64-apple-ios-sim
+cargo build --release --features ios --target aarch64-apple-ios
+cargo build --release --features ios --target aarch64-apple-ios-sim
 
 # Create XCFramework
 xcodebuild -create-xcframework \
@@ -56,8 +56,32 @@ session.setEnvelopeParam(env, .attack, value: 0.01)
 session.noteOn(60, velocity: 0.8)
 ```
 
-Next Steps for iOS
-1. FFI Layer - Expose SessionHandle via uniffi or manual C bindings
-2. Node Registry - Populate NodeTypeRegistry with your oscillators, filters, etc. [DONE] (sort of, can always add more)
-3. Graph Compiler - Build runtime Graph from GraphDef [DONE]
-4. SwiftUI Bindings - Create ObservableObject wrappers
+### Example Web Usage
+```bash
+# Build for WebAssembly
+wasm-pack build --target web --features web
+```
+
+```javascript
+import init, {
+    hyasynth_init,
+    HyasynthSession,
+    HyasynthRegistry,
+    node_sine_osc,
+    node_output
+} from './pkg/hyasynth.js';
+
+await init();
+hyasynth_init();
+
+const session = new HyasynthSession("My Synth");
+const engine = session.create_engine();
+const registry = new HyasynthRegistry();
+
+const osc = session.add_node(node_sine_osc(), 0, 0);
+const out = session.add_node(node_output(), 100, 0);
+session.connect(osc, 0, out, 0);
+session.set_output(out);
+
+engine.compile_graph(session, registry, 48000);
+```

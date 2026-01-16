@@ -11,6 +11,23 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 name = "hyasynth-engine"
 path = "src/main.rs"
 
+[features]
+default = []
+# Enable iOS FFI bindings with oslog
+ios = ["dep:oslog"]
+# Enable WebAssembly bindings
+web = ["dep:wasm-bindgen", "dep:console_log", "dep:console_error_panic_hook"]
+
 [dependencies]
 log = "0.4.29"
-oslog = "0.2.0"
+
+# iOS-specific logging (only included with "ios" feature)
+oslog = { version = "0.2.0", optional = true }
+
+# WebAssembly bindings (only included with "web" feature)
+wasm-bindgen = { version = "0.2", optional = true }
+console_log = { version = "0.2", optional = true }
+console_error_panic_hook = { version = "0.1", optional = true }
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-O3", "--enable-mutable-globals"]

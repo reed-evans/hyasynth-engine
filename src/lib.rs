@@ -1,6 +1,6 @@
 //! Hyasynth Audio Engine
 //!
-//! A real-time audio synthesis engine designed for iOS/Swift integration.
+//! A real-time audio synthesis engine designed for cross-platform integration.
 //!
 //! # Architecture
 //!
@@ -29,9 +29,10 @@
 //! // ... connect and configure
 //! ```
 //!
-//! # FFI
+//! # Platform Bindings
 //!
-//! For iOS/Swift integration, use the [`ffi`] module which provides C-compatible functions.
+//! - **iOS/Swift**: Enable the `ios` feature and use the [`ffi`] module for C-compatible functions.
+//! - **WebAssembly**: Enable the `web` feature and use the [`wasm`] module for wasm-bindgen exports.
 
 mod audio_buffer;
 mod bridge;
@@ -53,7 +54,15 @@ mod transport;
 mod voice;
 mod voice_allocator;
 
+/// C-compatible FFI bindings for iOS/Swift integration.
+/// Only available when the `ios` feature is enabled.
+#[cfg(feature = "ios")]
 pub mod ffi;
+
+/// WebAssembly bindings via wasm-bindgen.
+/// Only available when the `web` feature is enabled.
+#[cfg(feature = "web")]
+pub mod wasm;
 
 // Re-export key types for Rust consumers
 pub use bridge::{EngineHandle, SessionHandle, create_bridge};

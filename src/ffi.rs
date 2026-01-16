@@ -1,10 +1,12 @@
-// C-compatible FFI bindings for Swift/iOS integration.
-//
-// Safety requirements:
-// - All pointers must be non-null unless documented otherwise
-// - All handles must be created by this module and not fabricated
-// - String parameters must be valid UTF-8 (Swift strings are always valid)
-// - Caller must call the corresponding _destroy function for each _create
+//! C-compatible FFI bindings for Swift/iOS integration.
+//!
+//! This module is only compiled when the `ios` feature is enabled.
+//!
+//! # Safety requirements
+//! - All pointers must be non-null unless documented otherwise
+//! - All handles must be created by this module and not fabricated
+//! - String parameters must be valid UTF-8 (Swift strings are always valid)
+//! - Caller must call the corresponding _destroy function for each _create
 
 use std::ffi::{CStr, c_char, c_void};
 
@@ -19,7 +21,7 @@ use crate::scheduler::Scheduler;
 use crate::state::{EngineReadback, Session};
 use crate::voice_allocator::VoiceAllocator;
 
-use log::{LevelFilter, debug, error, info, warn};
+use log::{LevelFilter, error, info};
 use oslog::OsLogger;
 
 // Default audio configuration
