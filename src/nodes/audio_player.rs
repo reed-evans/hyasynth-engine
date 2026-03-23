@@ -374,7 +374,7 @@ mod tests {
         assert_eq!(player.active_voice_count(), 1);
 
         // Process some audio
-        let ctx = ProcessContext::new(512, 48000.0, 0, 120.0);
+        let ctx = ProcessContext::new(512, 48000.0, 0, 120.0, true);
         let mut output_data = vec![0.0f32; 512 * 2];
         let mut output = AudioBuffer::new(&mut output_data, 2);
 

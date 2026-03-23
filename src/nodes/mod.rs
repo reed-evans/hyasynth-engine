@@ -6,6 +6,7 @@ mod envelope;
 mod filters;
 mod modulation;
 mod oscillators;
+mod transport;
 mod utility;
 
 pub use audio_player::*;
@@ -14,6 +15,7 @@ pub use envelope::*;
 pub use filters::*;
 pub use modulation::*;
 pub use oscillators::*;
+pub use transport::*;
 pub use utility::*;
 
 use crate::node::Polyphony;
@@ -53,6 +55,9 @@ pub mod node_types {
     // Samplers (60-69)
     pub const AUDIO_PLAYER: u32 = 60;
 
+    // Transport (70-79)
+    pub const TRANSPORT: u32 = 70;
+
     // Utility (100+)
     pub const OUTPUT: u32 = 100;
 }
@@ -73,6 +78,9 @@ pub mod params {
     pub const DECAY: u32 = 1;
     pub const SUSTAIN: u32 = 2;
     pub const RELEASE: u32 = 3;
+    pub const ATTACK_CURVE: u32 = 4;
+    pub const DECAY_CURVE: u32 = 5;
+    pub const RELEASE_CURVE: u32 = 6;
 
     // Gain/mixer params
     pub const GAIN: u32 = 0;
@@ -86,6 +94,10 @@ pub mod params {
     pub const RATE: u32 = 0;
     pub const DEPTH: u32 = 1;
     pub const WAVEFORM: u32 = 2;
+
+    // Transport params
+    pub const MODE: u32 = 1;
+    // RATE (0) is already defined in LFO params
 
     // Delay params
     pub const TIME: u32 = 0;
@@ -107,6 +119,7 @@ pub fn register_standard_nodes(registry: &mut NodeRegistry) {
     register_envelopes(registry);
     register_filters(registry);
     register_modulators(registry);
+    register_transport(registry);
     register_effects(registry);
     register_samplers(registry);
     register_utility(registry);
@@ -221,6 +234,24 @@ fn register_envelopes(registry: &mut NodeRegistry) {
                     .default(0.3)
                     .unit(ParamUnit::Seconds)
                     .curve(DisplayCurve::Logarithmic),
+            )
+            .with_param(
+                ParamInfo::new(params::ATTACK_CURVE, "Attack Curve")
+                    .range(0.0, 1.0)
+                    .default(0.5)
+                    .unit(ParamUnit::None),
+            )
+            .with_param(
+                ParamInfo::new(params::DECAY_CURVE, "Decay Curve")
+                    .range(0.0, 1.0)
+                    .default(0.5)
+                    .unit(ParamUnit::None),
+            )
+            .with_param(
+                ParamInfo::new(params::RELEASE_CURVE, "Release Curve")
+                    .range(0.0, 1.0)
+                    .default(0.5)
+                    .unit(ParamUnit::None),
             ),
         SimpleNodeFactory::new(|| Box::new(AdsrEnvelope::new()), Polyphony::PerVoice).channels(1),
     );
@@ -337,6 +368,27 @@ fn register_modulators(registry: &mut NodeRegistry) {
                     .unit(ParamUnit::None),
             ),
         SimpleNodeFactory::new(|| Box::new(Lfo::new()), Polyphony::Global).channels(1),
+    );
+}
+
+fn register_transport(registry: &mut NodeRegistry) {
+    registry.register(
+        NodeTypeInfo::new(node_types::TRANSPORT, "Transport", "Modulators")
+            .with_output(PortInfo::audio_output(0, "Phase"))
+            .with_output(PortInfo::audio_output(1, "Trigger"))
+            .with_param(
+                ParamInfo::new(params::RATE, "Rate")
+                    .range(0.0625, 16.0)
+                    .default(1.0)
+                    .unit(ParamUnit::None),
+            )
+            .with_param(
+                ParamInfo::new(params::MODE, "Mode")
+                    .range(0.0, 1.0)
+                    .default(0.0)
+                    .unit(ParamUnit::None),
+            ),
+        SimpleNodeFactory::new(|| Box::new(TransportNode::new()), Polyphony::Global).channels(2),
     );
 }
 

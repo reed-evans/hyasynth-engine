@@ -82,7 +82,7 @@ impl Engine {
         // Process the graph for this slice
         let slice_start = self.sample_pos + slice.frame_offset as u64;
         self.graph
-            .process(slice.frame_count, slice_start, plan.bpm, &self.voices);
+            .process(slice.frame_count, slice_start, plan.bpm, self.playing, &self.voices);
 
         // Deactivate voices that finished their envelope release
         for voice_id in self.graph.drain_finished_voices() {
@@ -100,6 +100,9 @@ impl Engine {
 
             Event::NoteOff { note } => {
                 self.voices.note_off(*note);
+                if !self.graph.has_voice_release {
+                    self.voices.deactivate_released(*note);
+                }
             }
 
             Event::NoteOnTarget {
@@ -117,6 +120,9 @@ impl Engine {
             Event::NoteOffTarget { node_id, note } => {
                 let _ = node_id;
                 self.voices.note_off(*note);
+                if !self.graph.has_voice_release {
+                    self.voices.deactivate_released(*note);
+                }
             }
 
             Event::ParamChange {
@@ -231,6 +237,9 @@ impl Engine {
 
             Command::NoteOff { note } => {
                 self.voices.note_off(*note);
+                if !self.graph.has_voice_release {
+                    self.voices.deactivate_released(*note);
+                }
                 true
             }
 

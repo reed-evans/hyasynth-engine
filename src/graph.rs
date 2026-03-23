@@ -175,6 +175,11 @@ pub struct Graph {
     /// Voices that finished during this processing block (envelope went idle).
     /// The engine should drain this after processing and deactivate these voices.
     voices_to_deactivate: Vec<crate::voice::VoiceId>,
+
+    /// Whether any per-voice node in the graph requires a release phase.
+    /// If true, voices stay active after note-off to allow envelope release.
+    /// If false, voices are immediately deactivated on note-off.
+    pub has_voice_release: bool,
 }
 
 impl Graph {
@@ -190,6 +195,7 @@ impl Graph {
             input_scratch: Vec::new(),
             id_to_index: std::collections::HashMap::new(),
             voices_to_deactivate: Vec::new(),
+            has_voice_release: false,
         }
     }
 
@@ -323,8 +329,8 @@ impl Graph {
     }
 
     /// Process one block of audio
-    pub fn process(&mut self, frames: usize, sample_pos: u64, bpm: f64, voices: &VoiceAllocator) {
-        let ctx = ProcessContext::new(frames, self.sample_rate, sample_pos, bpm);
+    pub fn process(&mut self, frames: usize, sample_pos: u64, bpm: f64, playing: bool, voices: &VoiceAllocator) {
+        let ctx = ProcessContext::new(frames, self.sample_rate, sample_pos, bpm, playing);
 
         // Clear finished voices from previous block
         self.voices_to_deactivate.clear();

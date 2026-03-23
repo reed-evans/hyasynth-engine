@@ -64,6 +64,18 @@ impl VoiceAllocator {
         }
     }
 
+    /// Immediately deactivate the voice for a note that was just released.
+    /// Used when the graph has no envelope to handle the release phase.
+    pub fn deactivate_released(&mut self, note: u8) {
+        if let Some(v) = self
+            .voices
+            .iter_mut()
+            .find(|v| v.active && !v.gate && v.note == note)
+        {
+            v.deactivate();
+        }
+    }
+
     /// Deactivate a voice (called when envelope finishes release).
     pub fn deactivate(&mut self, voice_id: VoiceId) {
         if let Some(v) = self.voices.get_mut(voice_id) {

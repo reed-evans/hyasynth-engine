@@ -30,17 +30,21 @@ pub struct ProcessContext<'a> {
     /// Tempo in BPM
     pub bpm: f64,
 
+    /// Whether the global transport is playing
+    pub playing: bool,
+
     /// Marker for lifetime
     _marker: std::marker::PhantomData<&'a ()>,
 }
 
 impl<'a> ProcessContext<'a> {
-    pub fn new(frames: usize, sample_rate: f64, sample_pos: u64, bpm: f64) -> Self {
+    pub fn new(frames: usize, sample_rate: f64, sample_pos: u64, bpm: f64, playing: bool) -> Self {
         Self {
             frames,
             sample_rate,
             sample_pos,
             bpm,
+            playing,
             voice: None,
             _marker: std::marker::PhantomData,
         }
@@ -95,6 +99,12 @@ pub trait Node: Send {
 
     /// Reset node state (called on transport stop/seek).
     fn reset(&mut self) {}
+
+    /// Whether this node needs the voice to remain active during release phase.
+    /// ADSR envelopes return true; oscillators and most nodes return false.
+    fn needs_release(&self) -> bool {
+        false
+    }
 
     // ─────────────────────────────────────────────────────────────────
     // Audio playback (optional, for sampler/player nodes)

@@ -53,11 +53,12 @@ const DEFAULT_SAMPLE_RATE: f64 = 48_000.0;
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Initialize the wasm module. Call this once before using any other functions.
-/// Sets up panic hooks and console logging.
+/// Sets up panic hook to log to the browser console via web_sys.
 #[wasm_bindgen]
 pub fn hyasynth_init() {
-    console_error_panic_hook::set_once();
-    console_log::init_with_level(log::Level::Debug).ok();
+    std::panic::set_hook(Box::new(|info| {
+        web_sys::console::error_1(&info.to_string().into());
+    }));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -177,6 +178,8 @@ impl HyasynthRegistry {
 pub struct HyasynthSession {
     inner: SessionHandle,
     config: HyasynthConfig,
+    /// Engine handle created by create_bridge, held until create_engine() is called.
+    pending_engine: Option<EngineHandle>,
 }
 
 #[wasm_bindgen]
@@ -194,26 +197,24 @@ impl HyasynthSession {
         graph.prepare(config.sample_rate);
         let voices = VoiceAllocator::new(config.max_voices as usize);
         let engine = Engine::new(graph, voices);
-        let (session_handle, _engine_handle) = create_bridge(session, engine);
+        let (session_handle, engine_handle) = create_bridge(session, engine);
 
         HyasynthSession {
             inner: session_handle,
             config,
+            pending_engine: Some(engine_handle),
         }
     }
 
     /// Create an engine handle paired with this session.
     /// The engine processes audio and should be used in an AudioWorklet.
-    pub fn create_engine(&self) -> HyasynthEngine {
-        let session = Session::new("".to_string());
-        let mut graph = Graph::new(
-            self.config.max_block_size as usize,
-            self.config.max_voices as usize,
-        );
-        graph.prepare(self.config.sample_rate);
-        let voices = VoiceAllocator::new(self.config.max_voices as usize);
-        let engine = Engine::new(graph, voices);
-        let (_session_handle, engine_handle) = create_bridge(session, engine);
+    /// Must be called exactly once — the engine handle is created with the session
+    /// via create_bridge and can only be taken once.
+    pub fn create_engine(&mut self) -> HyasynthEngine {
+        let engine_handle = self
+            .pending_engine
+            .take()
+            .expect("create_engine() can only be called once per session");
 
         let scheduler = Scheduler::new(self.config.sample_rate);
         let handoff = PlanHandoff::new(
@@ -676,7 +677,7 @@ impl HyasynthEngine {
                 true
             }
             Err(e) => {
-                log::error!("Error compiling graph: {:?}", e);
+                web_sys::console::error_1(&format!("Error compiling graph: {:?}", e).into());
                 false
             }
         }
@@ -800,6 +801,12 @@ pub fn node_lfo() -> u32 {
     crate::nodes::node_types::LFO
 }
 
+/// Transport node type.
+#[wasm_bindgen]
+pub fn node_transport() -> u32 {
+    crate::nodes::node_types::TRANSPORT
+}
+
 /// Delay node type.
 #[wasm_bindgen]
 pub fn node_delay() -> u32 {
@@ -882,6 +889,12 @@ pub fn param_rate() -> u32 {
     crate::nodes::params::RATE
 }
 
+/// Mode parameter ID.
+#[wasm_bindgen]
+pub fn param_mode() -> u32 {
+    crate::nodes::params::MODE
+}
+
 /// Depth parameter ID.
 #[wasm_bindgen]
 pub fn param_depth() -> u32 {
@@ -910,4 +923,22 @@ pub fn param_mix() -> u32 {
 #[wasm_bindgen]
 pub fn param_damping() -> u32 {
     crate::nodes::params::DAMPING
+}
+
+/// Attack curve parameter ID.
+#[wasm_bindgen]
+pub fn param_attack_curve() -> u32 {
+    crate::nodes::params::ATTACK_CURVE
+}
+
+/// Decay curve parameter ID.
+#[wasm_bindgen]
+pub fn param_decay_curve() -> u32 {
+    crate::nodes::params::DECAY_CURVE
+}
+
+/// Release curve parameter ID.
+#[wasm_bindgen]
+pub fn param_release_curve() -> u32 {
+    crate::nodes::params::RELEASE_CURVE
 }

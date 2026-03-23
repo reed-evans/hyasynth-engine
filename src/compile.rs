@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use crate::graph::Graph;
+use crate::graph::{Graph, NodeInstance};
 use crate::node_factory::NodeRegistry;
 use crate::state::{GraphDef, NodeId};
 
@@ -79,6 +79,18 @@ pub fn compile(
         // Apply parameter values
         for (&param_id, &value) in &node_def.param_values {
             graph.set_param(idx, param_id, value);
+        }
+    }
+
+    // Determine if any per-voice node needs a release phase
+    for graph_node in &graph.nodes {
+        if let NodeInstance::PerVoice(nodes) = &graph_node.instance {
+            if let Some(first) = nodes.first() {
+                if first.needs_release() {
+                    graph.has_voice_release = true;
+                    break;
+                }
+            }
         }
     }
 
