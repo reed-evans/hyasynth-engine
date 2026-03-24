@@ -256,13 +256,14 @@ impl Node for MixerNode {
 
 /// Simple stereo delay effect.
 pub struct DelayNode {
-    delay_time: f32, // In seconds
-    feedback: f32,   // 0.0 - 1.0
-    mix: f32,        // Dry/wet mix (0.0 = dry, 1.0 = wet)
+    delay_time: f32,
+    feedback: f32,
+    mix: f32,
 
     buffer_l: Vec<f32>,
     buffer_r: Vec<f32>,
-    write_pos: usize,
+    write_pos_l: usize,
+    write_pos_r: usize,
     sample_rate: f64,
 }
 
@@ -274,14 +275,15 @@ impl DelayNode {
             mix: 0.5,
             buffer_l: vec![0.0; MAX_DELAY_SAMPLES],
             buffer_r: vec![0.0; MAX_DELAY_SAMPLES],
-            write_pos: 0,
+            write_pos_l: 0,
+            write_pos_r: 0,
             sample_rate: 48000.0,
         }
     }
 
     fn delay_samples(&self) -> usize {
         let samples = (self.delay_time * self.sample_rate as f32) as usize;
-        samples.min(MAX_DELAY_SAMPLES - 1)
+        samples.clamp(1, MAX_DELAY_SAMPLES - 1)
     }
 }
 
@@ -313,44 +315,40 @@ impl Node for DelayNode {
         let delay_samples = self.delay_samples();
         let buf_len = self.buffer_l.len();
 
-        // Process left channel
         let in_l = input.channel(0);
-        let out_l = output.channel_mut(0);
-
-        for i in 0..ctx.frames {
-            let dry = in_l.get(i).copied().unwrap_or(0.0);
-            let read_pos = (self.write_pos + buf_len - delay_samples) % buf_len;
-            let delayed = self.buffer_l[read_pos];
-
-            self.buffer_l[self.write_pos] = dry + delayed * self.feedback;
-            out_l[i] = dry * (1.0 - self.mix) + delayed * self.mix;
-
-            self.write_pos = (self.write_pos + 1) % buf_len;
-        }
-
-        // Reset write_pos for right channel
-        self.write_pos = (self.write_pos + buf_len - ctx.frames) % buf_len;
-
-        // Process right channel (or copy left if mono)
         let in_r = if input.channels > 1 {
             input.channel(1)
         } else {
             input.channel(0)
         };
-        let out_r = output.channel_mut(1);
 
+        // Process left channel
+        let out_l = output.channel_mut(0);
         for i in 0..ctx.frames {
-            let dry = in_r.get(i).copied().unwrap_or(0.0);
-            let read_pos = (self.write_pos + buf_len - delay_samples) % buf_len;
-            let delayed = self.buffer_r[read_pos];
+            let dry = in_l.get(i).copied().unwrap_or(0.0);
+            let read_pos = (self.write_pos_l + buf_len - delay_samples) % buf_len;
+            let delayed = self.buffer_l[read_pos];
 
-            self.buffer_r[self.write_pos] = dry + delayed * self.feedback;
-            out_r[i] = dry * (1.0 - self.mix) + delayed * self.mix;
+            self.buffer_l[self.write_pos_l] = dry + delayed * self.feedback;
+            out_l[i] = dry * (1.0 - self.mix) + delayed * self.mix;
 
-            self.write_pos = (self.write_pos + 1) % buf_len;
+            self.write_pos_l = (self.write_pos_l + 1) % buf_len;
         }
 
-        true
+        // Process right channel
+        let out_r = output.channel_mut(1);
+        for i in 0..ctx.frames {
+            let dry = in_r.get(i).copied().unwrap_or(0.0);
+            let read_pos = (self.write_pos_r + buf_len - delay_samples) % buf_len;
+            let delayed = self.buffer_r[read_pos];
+
+            self.buffer_r[self.write_pos_r] = dry + delayed * self.feedback;
+            out_r[i] = dry * (1.0 - self.mix) + delayed * self.mix;
+
+            self.write_pos_r = (self.write_pos_r + 1) % buf_len;
+        }
+
+        false
     }
 
     fn num_channels(&self) -> usize {
@@ -359,9 +357,9 @@ impl Node for DelayNode {
 
     fn set_param(&mut self, param_id: u32, value: f32) {
         match param_id {
-            0 => self.delay_time = value.clamp(0.001, 2.0), // Time in seconds
-            1 => self.feedback = value.clamp(0.0, 0.99),    // Feedback
-            2 => self.mix = value.clamp(0.0, 1.0),          // Mix
+            params::TIME => self.delay_time = value.clamp(0.001, 2.0),
+            params::FEEDBACK => self.feedback = value.clamp(0.0, 0.99),
+            params::MIX => self.mix = value.clamp(0.0, 1.0),
             _ => {}
         }
     }
@@ -369,103 +367,140 @@ impl Node for DelayNode {
     fn reset(&mut self) {
         self.buffer_l.fill(0.0);
         self.buffer_r.fill(0.0);
-        self.write_pos = 0;
+        self.write_pos_l = 0;
+        self.write_pos_r = 0;
     }
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Reverb Node (simple Schroeder reverb)
+// Reverb Node (Freeverb-inspired Schroeder reverb)
 // ═══════════════════════════════════════════════════════════════════
 
-/// Simple algorithmic reverb using a Schroeder topology.
+const NUM_COMBS: usize = 8;
+const NUM_ALLPASSES: usize = 4;
+
+/// Stereo offset applied to R channel delay lengths for decorrelation.
+const STEREO_SPREAD: usize = 23;
+
+/// Comb filter delay lengths at 44100 Hz (Freeverb tunings).
+const COMB_TUNINGS: [usize; NUM_COMBS] = [1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617];
+
+/// Allpass filter delay lengths at 44100 Hz (Freeverb tunings).
+const ALLPASS_TUNINGS: [usize; NUM_ALLPASSES] = [556, 441, 341, 225];
+
+const ALLPASS_FEEDBACK: f32 = 0.5;
+
+/// Internal comb filter unit with damped feedback.
+struct Comb {
+    buffer: Vec<f32>,
+    pos: usize,
+    filter_state: f32,
+}
+
+impl Comb {
+    fn new(size: usize) -> Self {
+        Self {
+            buffer: vec![0.0; size],
+            pos: 0,
+            filter_state: 0.0,
+        }
+    }
+
+    #[inline]
+    fn process(&mut self, input: f32, feedback: f32, damping: f32) -> f32 {
+        let delayed = self.buffer[self.pos];
+        // One-pole lowpass on feedback path for high-frequency damping
+        self.filter_state = delayed * (1.0 - damping) + self.filter_state * damping;
+        self.buffer[self.pos] = input + self.filter_state * feedback;
+        self.pos = (self.pos + 1) % self.buffer.len();
+        delayed
+    }
+
+    fn reset(&mut self) {
+        self.buffer.fill(0.0);
+        self.pos = 0;
+        self.filter_state = 0.0;
+    }
+}
+
+/// Internal allpass filter unit.
+struct Allpass {
+    buffer: Vec<f32>,
+    pos: usize,
+}
+
+impl Allpass {
+    fn new(size: usize) -> Self {
+        Self {
+            buffer: vec![0.0; size],
+            pos: 0,
+        }
+    }
+
+    #[inline]
+    fn process(&mut self, input: f32) -> f32 {
+        let delayed = self.buffer[self.pos];
+        self.buffer[self.pos] = input + delayed * ALLPASS_FEEDBACK;
+        self.pos = (self.pos + 1) % self.buffer.len();
+        delayed - input * ALLPASS_FEEDBACK
+    }
+
+    fn reset(&mut self) {
+        self.buffer.fill(0.0);
+        self.pos = 0;
+    }
+}
+
+/// Freeverb-inspired algorithmic reverb with true stereo processing.
 ///
-/// Uses 4 parallel comb filters and 2 series allpass filters.
+/// Uses 8 parallel comb filters and 4 series allpass filters per channel.
+/// L and R channels have independent filter state with slightly offset
+/// delay lengths for stereo decorrelation.
 pub struct ReverbNode {
-    decay: f32,   // Decay time (0.0 - 1.0)
-    damping: f32, // High frequency damping (0.0 - 1.0)
-    mix: f32,     // Dry/wet mix
+    decay: f32,
+    damping: f32,
+    mix: f32,
 
-    // Comb filter buffers (4 parallel)
-    comb_buffers: [Vec<f32>; 4],
-    comb_pos: [usize; 4],
-    comb_filter: [f32; 4], // Low-pass filtered feedback
-
-    // Allpass filter buffers (2 series)
-    allpass_buffers: [Vec<f32>; 2],
-    allpass_pos: [usize; 2],
+    combs_l: [Comb; NUM_COMBS],
+    combs_r: [Comb; NUM_COMBS],
+    allpasses_l: [Allpass; NUM_ALLPASSES],
+    allpasses_r: [Allpass; NUM_ALLPASSES],
 
     sample_rate: f64,
 }
 
-// Comb filter delay times in samples (for 48kHz, scaled later)
-const COMB_DELAYS: [usize; 4] = [1557, 1617, 1491, 1422];
-const ALLPASS_DELAYS: [usize; 2] = [225, 556];
-
 impl ReverbNode {
     pub fn new() -> Self {
+        Self::with_sample_rate(44100.0)
+    }
+
+    fn with_sample_rate(sr: f64) -> Self {
+        let scale = sr / 44100.0;
         Self {
             decay: 0.5,
             damping: 0.5,
             mix: 0.3,
-            comb_buffers: [
-                vec![0.0; 4096],
-                vec![0.0; 4096],
-                vec![0.0; 4096],
-                vec![0.0; 4096],
-            ],
-            comb_pos: [0; 4],
-            comb_filter: [0.0; 4],
-            allpass_buffers: [vec![0.0; 1024], vec![0.0; 1024]],
-            allpass_pos: [0; 2],
-            sample_rate: 48000.0,
+            combs_l: std::array::from_fn(|i| {
+                Comb::new((COMB_TUNINGS[i] as f64 * scale) as usize + 1)
+            }),
+            combs_r: std::array::from_fn(|i| {
+                Comb::new((COMB_TUNINGS[i] as f64 * scale) as usize + STEREO_SPREAD + 1)
+            }),
+            allpasses_l: std::array::from_fn(|i| {
+                Allpass::new((ALLPASS_TUNINGS[i] as f64 * scale) as usize + 1)
+            }),
+            allpasses_r: std::array::from_fn(|i| {
+                Allpass::new((ALLPASS_TUNINGS[i] as f64 * scale) as usize + STEREO_SPREAD + 1)
+            }),
+            sample_rate: sr,
         }
     }
 
-    fn comb_delay(&self, index: usize) -> usize {
-        let base = COMB_DELAYS[index];
-        let scaled = (base as f64 * self.sample_rate / 48000.0) as usize;
-        scaled.min(self.comb_buffers[index].len() - 1)
-    }
-
-    fn allpass_delay(&self, index: usize) -> usize {
-        let base = ALLPASS_DELAYS[index];
-        let scaled = (base as f64 * self.sample_rate / 48000.0) as usize;
-        scaled.min(self.allpass_buffers[index].len() - 1)
-    }
-
+    /// Map the user-facing decay parameter (0..1) to a feedback coefficient.
+    /// At 0.0 → 0.7 (short but smooth), at 1.0 → 0.98 (very long tail).
     #[inline]
-    fn process_comb(&mut self, index: usize, input: f32) -> f32 {
-        let delay = self.comb_delay(index);
-        let buf_len = self.comb_buffers[index].len();
-        let read_pos = (self.comb_pos[index] + buf_len - delay) % buf_len;
-
-        let delayed = self.comb_buffers[index][read_pos];
-
-        // Low-pass filtered feedback for damping
-        self.comb_filter[index] =
-            delayed * (1.0 - self.damping) + self.comb_filter[index] * self.damping;
-
-        let feedback = self.comb_filter[index] * self.decay;
-        self.comb_buffers[index][self.comb_pos[index]] = input + feedback;
-        self.comb_pos[index] = (self.comb_pos[index] + 1) % buf_len;
-
-        delayed
-    }
-
-    #[inline]
-    fn process_allpass(&mut self, index: usize, input: f32) -> f32 {
-        let delay = self.allpass_delay(index);
-        let buf_len = self.allpass_buffers[index].len();
-        let read_pos = (self.allpass_pos[index] + buf_len - delay) % buf_len;
-
-        let delayed = self.allpass_buffers[index][read_pos];
-        let g = 0.5_f32; // Allpass coefficient
-
-        let output = -g * input + delayed;
-        self.allpass_buffers[index][self.allpass_pos[index]] = input + g * delayed;
-        self.allpass_pos[index] = (self.allpass_pos[index] + 1) % buf_len;
-
-        output
+    fn feedback(&self) -> f32 {
+        self.decay * 0.28 + 0.7
     }
 }
 
@@ -477,7 +512,15 @@ impl Default for ReverbNode {
 
 impl Node for ReverbNode {
     fn prepare(&mut self, sample_rate: f64, _max_block: usize) {
-        self.sample_rate = sample_rate;
+        if (self.sample_rate - sample_rate).abs() > 0.1 {
+            let decay = self.decay;
+            let damping = self.damping;
+            let mix = self.mix;
+            *self = Self::with_sample_rate(sample_rate);
+            self.decay = decay;
+            self.damping = damping;
+            self.mix = mix;
+        }
     }
 
     fn process(
@@ -486,8 +529,6 @@ impl Node for ReverbNode {
         inputs: &[&AudioBuffer],
         output: &mut AudioBuffer,
     ) -> bool {
-        self.sample_rate = ctx.sample_rate;
-
         if inputs.is_empty() {
             output.clear();
             return false;
@@ -501,59 +542,47 @@ impl Node for ReverbNode {
             input.channel(0)
         };
 
+        let feedback = self.feedback();
+        let damping = self.damping;
+        let mix = self.mix;
+
+        // Process left channel
         let out_l = output.channel_mut(0);
-
         for i in 0..ctx.frames {
-            let dry_l = in_l.get(i).copied().unwrap_or(0.0);
-            let dry_r = in_r.get(i).copied().unwrap_or(0.0);
-            let mono = (dry_l + dry_r) * 0.5;
+            let dry = in_l.get(i).copied().unwrap_or(0.0);
+            let inp = dry * 0.075;
 
-            // Parallel comb filters
             let mut wet = 0.0_f32;
-            for c in 0..4 {
-                wet += self.process_comb(c, mono);
+            for c in 0..NUM_COMBS {
+                wet += self.combs_l[c].process(inp, feedback, damping);
             }
-            wet *= 0.25;
 
-            // Series allpass filters
-            wet = self.process_allpass(0, wet);
-            wet = self.process_allpass(1, wet);
+            for a in 0..NUM_ALLPASSES {
+                wet = self.allpasses_l[a].process(wet);
+            }
 
-            out_l[i] = dry_l * (1.0 - self.mix) + wet * self.mix;
+            out_l[i] = dry * (1.0 - mix) + wet * mix;
         }
 
-        // Process right channel (same reverb, different dry)
-        // Reset positions for right channel
-        for c in 0..4 {
-            self.comb_pos[c] = (self.comb_pos[c] + self.comb_buffers[c].len() - ctx.frames)
-                % self.comb_buffers[c].len();
-        }
-        for a in 0..2 {
-            self.allpass_pos[a] = (self.allpass_pos[a] + self.allpass_buffers[a].len()
-                - ctx.frames)
-                % self.allpass_buffers[a].len();
-        }
-
+        // Process right channel (independent filter state)
         let out_r = output.channel_mut(1);
-
         for i in 0..ctx.frames {
-            let dry_l = in_l.get(i).copied().unwrap_or(0.0);
-            let dry_r = in_r.get(i).copied().unwrap_or(0.0);
-            let mono = (dry_l + dry_r) * 0.5;
+            let dry = in_r.get(i).copied().unwrap_or(0.0);
+            let inp = dry * 0.015;
 
             let mut wet = 0.0_f32;
-            for c in 0..4 {
-                wet += self.process_comb(c, mono);
+            for c in 0..NUM_COMBS {
+                wet += self.combs_r[c].process(inp, feedback, damping);
             }
-            wet *= 0.25;
 
-            wet = self.process_allpass(0, wet);
-            wet = self.process_allpass(1, wet);
+            for a in 0..NUM_ALLPASSES {
+                wet = self.allpasses_r[a].process(wet);
+            }
 
-            out_r[i] = dry_r * (1.0 - self.mix) + wet * self.mix;
+            out_r[i] = dry * (1.0 - mix) + wet * mix;
         }
 
-        true
+        false
     }
 
     fn num_channels(&self) -> usize {
@@ -562,22 +591,25 @@ impl Node for ReverbNode {
 
     fn set_param(&mut self, param_id: u32, value: f32) {
         match param_id {
-            0 => self.decay = value.clamp(0.0, 0.99),  // Decay
-            1 => self.damping = value.clamp(0.0, 1.0), // Damping
-            2 => self.mix = value.clamp(0.0, 1.0),     // Mix
+            params::REVERB_DECAY => self.decay = value.clamp(0.0, 0.99),
+            params::DAMPING => self.damping = value.clamp(0.0, 1.0),
+            params::MIX => self.mix = value.clamp(0.0, 1.0),
             _ => {}
         }
     }
 
     fn reset(&mut self) {
-        for buf in &mut self.comb_buffers {
-            buf.fill(0.0);
+        for c in &mut self.combs_l {
+            c.reset();
         }
-        for buf in &mut self.allpass_buffers {
-            buf.fill(0.0);
+        for c in &mut self.combs_r {
+            c.reset();
         }
-        self.comb_pos = [0; 4];
-        self.allpass_pos = [0; 2];
-        self.comb_filter = [0.0; 4];
+        for a in &mut self.allpasses_l {
+            a.reset();
+        }
+        for a in &mut self.allpasses_r {
+            a.reset();
+        }
     }
 }

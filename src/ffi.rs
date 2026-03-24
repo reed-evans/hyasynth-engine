@@ -1574,6 +1574,15 @@ pub static NODE_DELAY: u32 = crate::nodes::node_types::DELAY;
 #[unsafe(no_mangle)]
 pub static NODE_REVERB: u32 = crate::nodes::node_types::REVERB;
 
+#[unsafe(no_mangle)]
+pub static NODE_MIXER: u32 = crate::nodes::node_types::MIXER;
+
+#[unsafe(no_mangle)]
+pub static NODE_AUDIO_PLAYER: u32 = crate::nodes::node_types::AUDIO_PLAYER;
+
+#[unsafe(no_mangle)]
+pub static NODE_TRANSPORT: u32 = crate::nodes::node_types::TRANSPORT;
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Parameter ID Constants
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1625,3 +1634,27 @@ pub static PARAM_MIX: u32 = crate::nodes::params::MIX;
 
 #[unsafe(no_mangle)]
 pub static PARAM_DAMPING: u32 = crate::nodes::params::DAMPING;
+
+#[unsafe(no_mangle)]
+pub static PARAM_PHASE: u32 = crate::nodes::params::PHASE;
+
+#[unsafe(no_mangle)]
+pub static PARAM_PULSE_WIDTH: u32 = crate::nodes::params::PULSE_WIDTH;
+
+#[unsafe(no_mangle)]
+pub static PARAM_ATTACK_CURVE: u32 = crate::nodes::params::ATTACK_CURVE;
+
+#[unsafe(no_mangle)]
+pub static PARAM_DECAY_CURVE: u32 = crate::nodes::params::DECAY_CURVE;
+
+#[unsafe(no_mangle)]
+pub static PARAM_RELEASE_CURVE: u32 = crate::nodes::params::RELEASE_CURVE;
+
+#[unsafe(no_mangle)]
+pub static PARAM_KEY_TRACKING: u32 = crate::nodes::params::KEY_TRACKING;
+
+#[unsafe(no_mangle)]
+pub static PARAM_MODE: u32 = crate::nodes::params::MODE;
+
+#[unsafe(no_mangle)]
+pub static PARAM_WAVEFORM: u32 = crate::nodes::params::WAVEFORM;

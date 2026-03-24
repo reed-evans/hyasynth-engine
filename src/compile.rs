@@ -95,11 +95,14 @@ pub fn compile(
     }
 
     // Wire up connections
-    // Note: Current Graph only tracks node->node, not port->port
-    // We deduplicate connections to the same dest node
+    // Sort by dest_port so that inputs are ordered by port index
+    // (e.g., audio in = inputs[0], cutoff in = inputs[1])
+    let mut sorted_connections = def.connections.clone();
+    sorted_connections.sort_by_key(|c| (c.dest_node, c.dest_port));
+
     let mut connected: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
 
-    for conn in &def.connections {
+    for conn in &sorted_connections {
         let sources = connected.entry(conn.dest_node).or_default();
         if !sources.contains(&conn.source_node) {
             sources.push(conn.source_node);

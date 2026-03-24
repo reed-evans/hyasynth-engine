@@ -89,6 +89,7 @@ pub mod params {
     // Filter params
     pub const CUTOFF: u32 = 0;
     pub const RESONANCE: u32 = 1;
+    pub const KEY_TRACKING: u32 = 2;
 
     // LFO params
     pub const RATE: u32 = 0;
@@ -104,8 +105,8 @@ pub mod params {
     pub const FEEDBACK: u32 = 1;
     pub const MIX: u32 = 2;
 
-    // Reverb params
-    // Uses: DECAY (0), DAMPING (1), MIX (2)
+    // Reverb params: REVERB_DECAY (0), DAMPING (1), MIX (2)
+    pub const REVERB_DECAY: u32 = 0;
     pub const DAMPING: u32 = 1;
 }
 
@@ -262,6 +263,7 @@ fn register_filters(registry: &mut NodeRegistry) {
     registry.register(
         NodeTypeInfo::new(node_types::LOWPASS, "Lowpass", "Filters")
             .with_input(PortInfo::audio_input(0, "In"))
+            .with_input(PortInfo::audio_input(1, "Cutoff In"))
             .with_output(PortInfo::audio_output(0, "Out"))
             .with_param(
                 ParamInfo::new(params::CUTOFF, "Cutoff")
@@ -275,6 +277,12 @@ fn register_filters(registry: &mut NodeRegistry) {
                     .range(0.0, 1.0)
                     .default(0.5)
                     .unit(ParamUnit::Percent),
+            )
+            .with_param(
+                ParamInfo::new(params::KEY_TRACKING, "Key Tracking")
+                    .range(0.0, 2.0)
+                    .default(0.0)
+                    .unit(ParamUnit::Percent),
             ),
         SimpleNodeFactory::new(|| Box::new(SvfFilter::lowpass()), Polyphony::PerVoice).channels(1),
     );
@@ -283,6 +291,7 @@ fn register_filters(registry: &mut NodeRegistry) {
     registry.register(
         NodeTypeInfo::new(node_types::HIGHPASS, "Highpass", "Filters")
             .with_input(PortInfo::audio_input(0, "In"))
+            .with_input(PortInfo::audio_input(1, "Cutoff In"))
             .with_output(PortInfo::audio_output(0, "Out"))
             .with_param(
                 ParamInfo::new(params::CUTOFF, "Cutoff")
@@ -296,6 +305,12 @@ fn register_filters(registry: &mut NodeRegistry) {
                     .range(0.0, 1.0)
                     .default(0.5)
                     .unit(ParamUnit::Percent),
+            )
+            .with_param(
+                ParamInfo::new(params::KEY_TRACKING, "Key Tracking")
+                    .range(0.0, 2.0)
+                    .default(0.0)
+                    .unit(ParamUnit::Percent),
             ),
         SimpleNodeFactory::new(|| Box::new(SvfFilter::highpass()), Polyphony::PerVoice).channels(1),
     );
@@ -304,6 +319,7 @@ fn register_filters(registry: &mut NodeRegistry) {
     registry.register(
         NodeTypeInfo::new(node_types::BANDPASS, "Bandpass", "Filters")
             .with_input(PortInfo::audio_input(0, "In"))
+            .with_input(PortInfo::audio_input(1, "Cutoff In"))
             .with_output(PortInfo::audio_output(0, "Out"))
             .with_param(
                 ParamInfo::new(params::CUTOFF, "Center")
@@ -317,6 +333,12 @@ fn register_filters(registry: &mut NodeRegistry) {
                     .range(0.0, 1.0)
                     .default(0.5)
                     .unit(ParamUnit::Percent),
+            )
+            .with_param(
+                ParamInfo::new(params::KEY_TRACKING, "Key Tracking")
+                    .range(0.0, 2.0)
+                    .default(0.0)
+                    .unit(ParamUnit::Percent),
             ),
         SimpleNodeFactory::new(|| Box::new(SvfFilter::bandpass()), Polyphony::PerVoice).channels(1),
     );
@@ -325,6 +347,7 @@ fn register_filters(registry: &mut NodeRegistry) {
     registry.register(
         NodeTypeInfo::new(node_types::NOTCH, "Notch", "Filters")
             .with_input(PortInfo::audio_input(0, "In"))
+            .with_input(PortInfo::audio_input(1, "Cutoff In"))
             .with_output(PortInfo::audio_output(0, "Out"))
             .with_param(
                 ParamInfo::new(params::CUTOFF, "Frequency")
@@ -337,6 +360,12 @@ fn register_filters(registry: &mut NodeRegistry) {
                 ParamInfo::new(params::RESONANCE, "Width")
                     .range(0.0, 1.0)
                     .default(0.5)
+                    .unit(ParamUnit::Percent),
+            )
+            .with_param(
+                ParamInfo::new(params::KEY_TRACKING, "Key Tracking")
+                    .range(0.0, 2.0)
+                    .default(0.0)
                     .unit(ParamUnit::Percent),
             ),
         SimpleNodeFactory::new(|| Box::new(SvfFilter::notch()), Polyphony::PerVoice).channels(1),
@@ -471,7 +500,7 @@ fn register_effects(registry: &mut NodeRegistry) {
             .with_input(PortInfo::audio_input(0, "In").stereo())
             .with_output(PortInfo::audio_output(0, "Out").stereo())
             .with_param(
-                ParamInfo::new(params::DECAY, "Decay")
+                ParamInfo::new(params::REVERB_DECAY, "Decay")
                     .range(0.0, 0.99)
                     .default(0.5)
                     .unit(ParamUnit::Percent),

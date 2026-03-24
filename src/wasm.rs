@@ -819,6 +819,18 @@ pub fn node_reverb() -> u32 {
     crate::nodes::node_types::REVERB
 }
 
+/// Mixer node type.
+#[wasm_bindgen]
+pub fn node_mixer() -> u32 {
+    crate::nodes::node_types::MIXER
+}
+
+/// Audio player node type.
+#[wasm_bindgen]
+pub fn node_audio_player() -> u32 {
+    crate::nodes::node_types::AUDIO_PLAYER
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Parameter ID Constants
 // ═══════════════════════════════════════════════════════════════════════════
@@ -919,6 +931,12 @@ pub fn param_mix() -> u32 {
     crate::nodes::params::MIX
 }
 
+/// Reverb decay parameter ID.
+#[wasm_bindgen]
+pub fn param_reverb_decay() -> u32 {
+    crate::nodes::params::REVERB_DECAY
+}
+
 /// Damping parameter ID.
 #[wasm_bindgen]
 pub fn param_damping() -> u32 {
@@ -941,4 +959,28 @@ pub fn param_decay_curve() -> u32 {
 #[wasm_bindgen]
 pub fn param_release_curve() -> u32 {
     crate::nodes::params::RELEASE_CURVE
+}
+
+/// Key tracking parameter ID.
+#[wasm_bindgen]
+pub fn param_key_tracking() -> u32 {
+    crate::nodes::params::KEY_TRACKING
+}
+
+/// Phase parameter ID.
+#[wasm_bindgen]
+pub fn param_phase() -> u32 {
+    crate::nodes::params::PHASE
+}
+
+/// Pulse width parameter ID.
+#[wasm_bindgen]
+pub fn param_pulse_width() -> u32 {
+    crate::nodes::params::PULSE_WIDTH
+}
+
+/// Waveform parameter ID.
+#[wasm_bindgen]
+pub fn param_waveform() -> u32 {
+    crate::nodes::params::WAVEFORM
 }

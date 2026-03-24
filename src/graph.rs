@@ -370,9 +370,11 @@ impl Graph {
         let buf = &mut self.buffers[idx];
         buf.data[..buf.channels * frames].fill(0.0);
 
-        // Early exit if all inputs are silent
-        if inputs_silent && has_inputs {
-            self.nodes[idx].silent = true;
+        // Early exit if all inputs are silent AND the node itself is already silent
+        // (i.e. its internal state like delay/reverb tails has fully decayed).
+        // If the node last reported non-silent, we must keep processing so it can
+        // drain its internal buffers.
+        if inputs_silent && has_inputs && self.nodes[idx].silent {
             return;
         }
 

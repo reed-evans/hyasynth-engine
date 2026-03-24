@@ -1,6 +1,6 @@
-// Basic oscillator nodes.
+// Oscillator nodes.
 
-use std::f32::consts::TAU;
+use std::f32::consts::{PI, TAU};
 
 use crate::audio_buffer::AudioBuffer;
 use crate::node::{Node, ProcessContext};
