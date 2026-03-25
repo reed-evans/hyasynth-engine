@@ -831,6 +831,12 @@ pub fn node_audio_player() -> u32 {
     crate::nodes::node_types::AUDIO_PLAYER
 }
 
+/// Phase distortion oscillator node type.
+#[wasm_bindgen]
+pub fn node_phase_osc() -> u32 {
+    crate::nodes::node_types::PHASE_OSC
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Parameter ID Constants
 // ═══════════════════════════════════════════════════════════════════════════
@@ -983,4 +989,70 @@ pub fn param_pulse_width() -> u32 {
 #[wasm_bindgen]
 pub fn param_waveform() -> u32 {
     crate::nodes::params::WAVEFORM
+}
+
+/// Oscillator key tracking parameter ID.
+#[wasm_bindgen]
+pub fn param_osc_key_tracking() -> u32 {
+    crate::nodes::params::OSC_KEY_TRACKING
+}
+
+/// Shape parameter ID (phase oscillator).
+#[wasm_bindgen]
+pub fn param_shape() -> u32 {
+    crate::nodes::params::SHAPE
+}
+
+/// Algorithm parameter ID (phase oscillator).
+#[wasm_bindgen]
+pub fn param_algorithm() -> u32 {
+    crate::nodes::params::ALGORITHM
+}
+
+/// Phase oscillator feedback parameter ID.
+#[wasm_bindgen]
+pub fn param_po_feedback() -> u32 {
+    crate::nodes::params::PO_FEEDBACK
+}
+
+/// Formant parameter ID (phase oscillator).
+#[wasm_bindgen]
+pub fn param_formant() -> u32 {
+    crate::nodes::params::FORMANT
+}
+
+/// Phase oscillator key tracking parameter ID.
+#[wasm_bindgen]
+pub fn param_po_key_tracking() -> u32 {
+    crate::nodes::params::PO_KEY_TRACKING
+}
+
+/// Pitch ratio numerator parameter ID (phase oscillator).
+#[wasm_bindgen]
+pub fn param_pitch_ratio_num() -> u32 {
+    crate::nodes::params::PITCH_RATIO_NUM
+}
+
+/// Pitch ratio denominator parameter ID (phase oscillator).
+#[wasm_bindgen]
+pub fn param_pitch_ratio_den() -> u32 {
+    crate::nodes::params::PITCH_RATIO_DEN
+}
+
+/// Pitch offset parameter ID (phase oscillator).
+#[wasm_bindgen]
+pub fn param_pitch_offset() -> u32 {
+    crate::nodes::params::PITCH_OFFSET
+}
+
+/// Stereo detune toggle parameter ID (phase oscillator).
+#[wasm_bindgen]
+pub fn param_stereo_detune() -> u32 {
+    crate::nodes::params::STEREO_DETUNE
+}
+
+/// Phase oscillator detune parameter ID.
+#[wasm_bindgen]
+pub fn param_po_detune() -> u32 {
+    crate::nodes::params::PO_DETUNE
 }

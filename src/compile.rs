@@ -94,37 +94,25 @@ pub fn compile(
         }
     }
 
-    // Wire up connections
-    // Sort by dest_port so that inputs are ordered by port index
-    // (e.g., audio in = inputs[0], cutoff in = inputs[1])
-    let mut sorted_connections = def.connections.clone();
-    sorted_connections.sort_by_key(|c| (c.dest_node, c.dest_port));
+    // Wire up connections — each connection maps to a specific dest port
+    for conn in &def.connections {
+        let src_idx =
+            id_to_index
+                .get(&conn.source_node)
+                .ok_or(CompileError::InvalidConnection {
+                    source: conn.source_node,
+                    dest: conn.dest_node,
+                })?;
 
-    let mut connected: HashMap<NodeId, Vec<NodeId>> = HashMap::new();
+        let dst_idx =
+            id_to_index
+                .get(&conn.dest_node)
+                .ok_or(CompileError::InvalidConnection {
+                    source: conn.source_node,
+                    dest: conn.dest_node,
+                })?;
 
-    for conn in &sorted_connections {
-        let sources = connected.entry(conn.dest_node).or_default();
-        if !sources.contains(&conn.source_node) {
-            sources.push(conn.source_node);
-
-            let src_idx =
-                id_to_index
-                    .get(&conn.source_node)
-                    .ok_or(CompileError::InvalidConnection {
-                        source: conn.source_node,
-                        dest: conn.dest_node,
-                    })?;
-
-            let dst_idx =
-                id_to_index
-                    .get(&conn.dest_node)
-                    .ok_or(CompileError::InvalidConnection {
-                        source: conn.source_node,
-                        dest: conn.dest_node,
-                    })?;
-
-            graph.connect(*src_idx, *dst_idx);
-        }
+        graph.connect(*src_idx, *dst_idx, conn.dest_port);
     }
 
     // Set output node
@@ -204,5 +192,6 @@ mod tests {
         let graph = result.unwrap();
         assert_eq!(graph.nodes.len(), 2);
         assert_eq!(graph.nodes[1].inputs.len(), 1);
+        assert_eq!(graph.nodes[1].inputs[0], Some(0));
     }
 }

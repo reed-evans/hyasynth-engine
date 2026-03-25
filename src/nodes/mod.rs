@@ -32,6 +32,7 @@ pub mod node_types {
     pub const SAW_OSC: u32 = 2;
     pub const SQUARE_OSC: u32 = 3;
     pub const TRIANGLE_OSC: u32 = 4;
+    pub const PHASE_OSC: u32 = 5;
 
     // Envelopes (10-19)
     pub const ADSR_ENV: u32 = 10;
@@ -72,6 +73,19 @@ pub mod params {
     pub const DETUNE: u32 = 1;
     pub const PHASE: u32 = 2;
     pub const PULSE_WIDTH: u32 = 3;
+    pub const OSC_KEY_TRACKING: u32 = 4;
+
+    // Phase oscillator params
+    pub const SHAPE: u32 = 0;
+    pub const ALGORITHM: u32 = 1;
+    pub const PO_FEEDBACK: u32 = 2;
+    pub const FORMANT: u32 = 3;
+    pub const PO_KEY_TRACKING: u32 = 4;
+    pub const PITCH_RATIO_NUM: u32 = 5;
+    pub const PITCH_RATIO_DEN: u32 = 6;
+    pub const PITCH_OFFSET: u32 = 7;
+    pub const STEREO_DETUNE: u32 = 8;
+    pub const PO_DETUNE: u32 = 9;
 
     // Envelope params
     pub const ATTACK: u32 = 0;
@@ -130,7 +144,10 @@ fn register_oscillators(registry: &mut NodeRegistry) {
     // Sine Oscillator
     registry.register(
         NodeTypeInfo::new(node_types::SINE_OSC, "Sine", "Oscillators")
-            .with_output(PortInfo::audio_output(0, "Out"))
+            .with_input(PortInfo::audio_input(0, "Pitch In"))
+            .with_input(PortInfo::audio_input(1, "Phase In"))
+            .with_input(PortInfo::audio_input(2, "Retrigger In"))
+            .with_output(PortInfo::audio_output(0, "Out").stereo())
             .with_param(
                 ParamInfo::new(params::FREQ, "Frequency")
                     .range(20.0, 20000.0)
@@ -144,14 +161,36 @@ fn register_oscillators(registry: &mut NodeRegistry) {
                     .default(0.0)
                     .unit(ParamUnit::Semitones)
                     .curve(DisplayCurve::Symmetric),
+            )
+            .with_param(
+                ParamInfo::new(params::OSC_KEY_TRACKING, "Key Tracking")
+                    .range(0.0, 1.0)
+                    .default(1.0)
+                    .unit(ParamUnit::None),
+            )
+            .with_param(
+                ParamInfo::new(params::PITCH_OFFSET, "Pitch Offset")
+                    .range(-48.0, 48.0)
+                    .default(0.0)
+                    .unit(ParamUnit::Semitones)
+                    .curve(DisplayCurve::Symmetric),
+            )
+            .with_param(
+                ParamInfo::new(params::STEREO_DETUNE, "Stereo Detune")
+                    .range(0.0, 1.0)
+                    .default(0.0)
+                    .unit(ParamUnit::None),
             ),
-        SimpleNodeFactory::new(|| Box::new(SineOsc::new()), Polyphony::PerVoice).channels(1),
+        SimpleNodeFactory::new(|| Box::new(SineOsc::new()), Polyphony::PerVoice).channels(2),
     );
 
     // Saw Oscillator
     registry.register(
         NodeTypeInfo::new(node_types::SAW_OSC, "Saw", "Oscillators")
-            .with_output(PortInfo::audio_output(0, "Out"))
+            .with_input(PortInfo::audio_input(0, "Pitch In"))
+            .with_input(PortInfo::audio_input(1, "Phase In"))
+            .with_input(PortInfo::audio_input(2, "Retrigger In"))
+            .with_output(PortInfo::audio_output(0, "Out").stereo())
             .with_param(
                 ParamInfo::new(params::FREQ, "Frequency")
                     .range(20.0, 20000.0)
@@ -165,42 +204,191 @@ fn register_oscillators(registry: &mut NodeRegistry) {
                     .default(0.0)
                     .unit(ParamUnit::Semitones)
                     .curve(DisplayCurve::Symmetric),
+            )
+            .with_param(
+                ParamInfo::new(params::OSC_KEY_TRACKING, "Key Tracking")
+                    .range(0.0, 1.0)
+                    .default(1.0)
+                    .unit(ParamUnit::None),
+            )
+            .with_param(
+                ParamInfo::new(params::PITCH_OFFSET, "Pitch Offset")
+                    .range(-48.0, 48.0)
+                    .default(0.0)
+                    .unit(ParamUnit::Semitones)
+                    .curve(DisplayCurve::Symmetric),
+            )
+            .with_param(
+                ParamInfo::new(params::STEREO_DETUNE, "Stereo Detune")
+                    .range(0.0, 1.0)
+                    .default(0.0)
+                    .unit(ParamUnit::None),
             ),
-        SimpleNodeFactory::new(|| Box::new(SawOsc::new()), Polyphony::PerVoice).channels(1),
+        SimpleNodeFactory::new(|| Box::new(SawOsc::new()), Polyphony::PerVoice).channels(2),
     );
 
     // Square Oscillator
     registry.register(
         NodeTypeInfo::new(node_types::SQUARE_OSC, "Square", "Oscillators")
-            .with_output(PortInfo::audio_output(0, "Out"))
+            .with_input(PortInfo::audio_input(0, "Pitch In"))
+            .with_input(PortInfo::audio_input(1, "Phase In"))
+            .with_input(PortInfo::audio_input(2, "Retrigger In"))
+            .with_output(PortInfo::audio_output(0, "Out").stereo())
             .with_param(
                 ParamInfo::new(params::FREQ, "Frequency")
                     .range(20.0, 20000.0)
                     .default(440.0)
                     .unit(ParamUnit::Hz)
                     .curve(DisplayCurve::Logarithmic),
+            )
+            .with_param(
+                ParamInfo::new(params::DETUNE, "Detune")
+                    .range(-100.0, 100.0)
+                    .default(0.0)
+                    .unit(ParamUnit::Semitones)
+                    .curve(DisplayCurve::Symmetric),
             )
             .with_param(
                 ParamInfo::new(params::PULSE_WIDTH, "Pulse Width")
                     .range(0.01, 0.99)
                     .default(0.5)
                     .unit(ParamUnit::Percent),
+            )
+            .with_param(
+                ParamInfo::new(params::OSC_KEY_TRACKING, "Key Tracking")
+                    .range(0.0, 1.0)
+                    .default(1.0)
+                    .unit(ParamUnit::None),
+            )
+            .with_param(
+                ParamInfo::new(params::PITCH_OFFSET, "Pitch Offset")
+                    .range(-48.0, 48.0)
+                    .default(0.0)
+                    .unit(ParamUnit::Semitones)
+                    .curve(DisplayCurve::Symmetric),
+            )
+            .with_param(
+                ParamInfo::new(params::STEREO_DETUNE, "Stereo Detune")
+                    .range(0.0, 1.0)
+                    .default(0.0)
+                    .unit(ParamUnit::None),
             ),
-        SimpleNodeFactory::new(|| Box::new(SquareOsc::new()), Polyphony::PerVoice).channels(1),
+        SimpleNodeFactory::new(|| Box::new(SquareOsc::new()), Polyphony::PerVoice).channels(2),
     );
 
     // Triangle Oscillator
     registry.register(
         NodeTypeInfo::new(node_types::TRIANGLE_OSC, "Triangle", "Oscillators")
-            .with_output(PortInfo::audio_output(0, "Out"))
+            .with_input(PortInfo::audio_input(0, "Pitch In"))
+            .with_input(PortInfo::audio_input(1, "Phase In"))
+            .with_input(PortInfo::audio_input(2, "Retrigger In"))
+            .with_output(PortInfo::audio_output(0, "Out").stereo())
             .with_param(
                 ParamInfo::new(params::FREQ, "Frequency")
                     .range(20.0, 20000.0)
                     .default(440.0)
                     .unit(ParamUnit::Hz)
                     .curve(DisplayCurve::Logarithmic),
+            )
+            .with_param(
+                ParamInfo::new(params::DETUNE, "Detune")
+                    .range(-100.0, 100.0)
+                    .default(0.0)
+                    .unit(ParamUnit::Semitones)
+                    .curve(DisplayCurve::Symmetric),
+            )
+            .with_param(
+                ParamInfo::new(params::OSC_KEY_TRACKING, "Key Tracking")
+                    .range(0.0, 1.0)
+                    .default(1.0)
+                    .unit(ParamUnit::None),
+            )
+            .with_param(
+                ParamInfo::new(params::PITCH_OFFSET, "Pitch Offset")
+                    .range(-48.0, 48.0)
+                    .default(0.0)
+                    .unit(ParamUnit::Semitones)
+                    .curve(DisplayCurve::Symmetric),
+            )
+            .with_param(
+                ParamInfo::new(params::STEREO_DETUNE, "Stereo Detune")
+                    .range(0.0, 1.0)
+                    .default(0.0)
+                    .unit(ParamUnit::None),
             ),
-        SimpleNodeFactory::new(|| Box::new(TriangleOsc::new()), Polyphony::PerVoice).channels(1),
+        SimpleNodeFactory::new(|| Box::new(TriangleOsc::new()), Polyphony::PerVoice).channels(2),
+    );
+
+    // Phase Distortion Oscillator
+    registry.register(
+        NodeTypeInfo::new(node_types::PHASE_OSC, "Phase", "Oscillators")
+            .with_input(PortInfo::audio_input(0, "Pitch In"))
+            .with_input(PortInfo::audio_input(1, "Phase In"))
+            .with_input(PortInfo::audio_input(2, "Retrigger In"))
+            .with_output(PortInfo::audio_output(0, "Out").stereo())
+            .with_param(
+                ParamInfo::new(params::SHAPE, "Shape")
+                    .range(0.0, 1.0)
+                    .default(0.0)
+                    .unit(ParamUnit::Percent),
+            )
+            .with_param(
+                ParamInfo::new(params::ALGORITHM, "Algorithm")
+                    .range(0.0, 5.0)
+                    .default(0.0)
+                    .unit(ParamUnit::None),
+            )
+            .with_param(
+                ParamInfo::new(params::PO_FEEDBACK, "Feedback")
+                    .range(0.0, 1.0)
+                    .default(0.0)
+                    .unit(ParamUnit::Percent),
+            )
+            .with_param(
+                ParamInfo::new(params::FORMANT, "Formant")
+                    .range(1.0, 9.0)
+                    .default(1.0)
+                    .unit(ParamUnit::None),
+            )
+            .with_param(
+                ParamInfo::new(params::PO_KEY_TRACKING, "Key Tracking")
+                    .range(0.0, 1.0)
+                    .default(1.0)
+                    .unit(ParamUnit::None),
+            )
+            .with_param(
+                ParamInfo::new(params::PITCH_RATIO_NUM, "Pitch Ratio Num")
+                    .range(0.0, 99.0)
+                    .default(1.0)
+                    .unit(ParamUnit::None),
+            )
+            .with_param(
+                ParamInfo::new(params::PITCH_RATIO_DEN, "Pitch Ratio Den")
+                    .range(1.0, 99.0)
+                    .default(1.0)
+                    .unit(ParamUnit::None),
+            )
+            .with_param(
+                ParamInfo::new(params::PITCH_OFFSET, "Pitch Offset")
+                    .range(-48.0, 48.0)
+                    .default(0.0)
+                    .unit(ParamUnit::Semitones)
+                    .curve(DisplayCurve::Symmetric),
+            )
+            .with_param(
+                ParamInfo::new(params::STEREO_DETUNE, "Stereo Detune")
+                    .range(0.0, 1.0)
+                    .default(0.0)
+                    .unit(ParamUnit::None),
+            )
+            .with_param(
+                ParamInfo::new(params::PO_DETUNE, "Detune")
+                    .range(-27.0, 27.0)
+                    .default(0.0)
+                    .unit(ParamUnit::Hz)
+                    .curve(DisplayCurve::Symmetric),
+            ),
+        SimpleNodeFactory::new(|| Box::new(PhaseOsc::new()), Polyphony::PerVoice).channels(2),
     );
 }
 

@@ -1583,6 +1583,9 @@ pub static NODE_AUDIO_PLAYER: u32 = crate::nodes::node_types::AUDIO_PLAYER;
 #[unsafe(no_mangle)]
 pub static NODE_TRANSPORT: u32 = crate::nodes::node_types::TRANSPORT;
 
+#[unsafe(no_mangle)]
+pub static NODE_PHASE_OSC: u32 = crate::nodes::node_types::PHASE_OSC;
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Parameter ID Constants
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1658,3 +1661,40 @@ pub static PARAM_MODE: u32 = crate::nodes::params::MODE;
 
 #[unsafe(no_mangle)]
 pub static PARAM_WAVEFORM: u32 = crate::nodes::params::WAVEFORM;
+
+#[unsafe(no_mangle)]
+pub static PARAM_REVERB_DECAY: u32 = crate::nodes::params::REVERB_DECAY;
+
+#[unsafe(no_mangle)]
+pub static PARAM_OSC_KEY_TRACKING: u32 = crate::nodes::params::OSC_KEY_TRACKING;
+
+// Phase oscillator params
+#[unsafe(no_mangle)]
+pub static PARAM_SHAPE: u32 = crate::nodes::params::SHAPE;
+
+#[unsafe(no_mangle)]
+pub static PARAM_ALGORITHM: u32 = crate::nodes::params::ALGORITHM;
+
+#[unsafe(no_mangle)]
+pub static PARAM_PO_FEEDBACK: u32 = crate::nodes::params::PO_FEEDBACK;
+
+#[unsafe(no_mangle)]
+pub static PARAM_FORMANT: u32 = crate::nodes::params::FORMANT;
+
+#[unsafe(no_mangle)]
+pub static PARAM_PO_KEY_TRACKING: u32 = crate::nodes::params::PO_KEY_TRACKING;
+
+#[unsafe(no_mangle)]
+pub static PARAM_PITCH_RATIO_NUM: u32 = crate::nodes::params::PITCH_RATIO_NUM;
+
+#[unsafe(no_mangle)]
+pub static PARAM_PITCH_RATIO_DEN: u32 = crate::nodes::params::PITCH_RATIO_DEN;
+
+#[unsafe(no_mangle)]
+pub static PARAM_PITCH_OFFSET: u32 = crate::nodes::params::PITCH_OFFSET;
+
+#[unsafe(no_mangle)]
+pub static PARAM_STEREO_DETUNE: u32 = crate::nodes::params::STEREO_DETUNE;
+
+#[unsafe(no_mangle)]
+pub static PARAM_PO_DETUNE: u32 = crate::nodes::params::PO_DETUNE;

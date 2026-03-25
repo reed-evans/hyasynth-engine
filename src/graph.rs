@@ -149,7 +149,9 @@ impl NodeInstance {
 /// One node in the graph
 pub struct GraphNode {
     pub instance: NodeInstance,
-    pub inputs: Vec<usize>,
+    /// Port-indexed inputs: index = dest port ID, value = source node index.
+    /// `None` means the port is unconnected.
+    pub inputs: Vec<Option<usize>>,
     pub silent: bool,
 }
 
@@ -165,8 +167,14 @@ pub struct Graph {
     /// Topologically sorted evaluation order (computed in prepare)
     eval_order: Vec<usize>,
 
-    /// Scratch space for collecting input buffer references
+    /// Scratch: unique connected source node indices (for silence checks & voice mixing)
     input_scratch: Vec<usize>,
+
+    /// Scratch: port-indexed input map copied from current node (index = port, value = source node)
+    port_scratch: Vec<Option<usize>>,
+
+    /// Persistent zero buffer for unconnected input ports
+    zero_buf_data: Vec<f32>,
 
     /// Maps session node IDs to runtime graph indices.
     /// Populated during compilation.
@@ -193,6 +201,8 @@ impl Graph {
             sample_rate: 48_000.0,
             eval_order: Vec::new(),
             input_scratch: Vec::new(),
+            port_scratch: Vec::new(),
+            zero_buf_data: vec![0.0; max_block * 2],
             id_to_index: std::collections::HashMap::new(),
             voices_to_deactivate: Vec::new(),
             has_voice_release: false,
@@ -230,11 +240,14 @@ impl Graph {
         idx
     }
 
-    /// Add an edge: src -> dst
-    pub fn connect(&mut self, src: usize, dst: usize) {
-        if !self.nodes[dst].inputs.contains(&src) {
-            self.nodes[dst].inputs.push(src);
+    /// Add an edge: src -> dst at the given destination port.
+    pub fn connect(&mut self, src: usize, dst: usize, dest_port: u32) {
+        let port = dest_port as usize;
+        let inputs = &mut self.nodes[dst].inputs;
+        if inputs.len() <= port {
+            inputs.resize(port + 1, None);
         }
+        inputs[port] = Some(src);
     }
 
     /// Prepare all nodes and compute evaluation order
@@ -267,16 +280,16 @@ impl Graph {
             return Vec::new();
         }
 
-        // Count incoming edges
+        // Count incoming edges (only connected ports)
         let mut in_degree = vec![0usize; n];
         for (i, node) in self.nodes.iter().enumerate() {
-            in_degree[i] = node.inputs.len();
+            in_degree[i] = node.inputs.iter().flatten().count();
         }
 
-        // For each node, count how many nodes depend on it
+        // For each node, record which nodes depend on it
         let mut out_edges: Vec<Vec<usize>> = vec![Vec::new(); n];
         for (idx, node) in self.nodes.iter().enumerate() {
-            for &input in &node.inputs {
+            for &input in node.inputs.iter().flatten() {
                 out_edges[input].push(idx);
             }
         }
@@ -302,7 +315,11 @@ impl Graph {
             // For each node that depends on this one
             for &dependent in &out_edges[idx] {
                 // Check if all its inputs are processed
-                let all_inputs_ready = self.nodes[dependent].inputs.iter().all(|&i| processed[i]);
+                let all_inputs_ready = self.nodes[dependent]
+                    .inputs
+                    .iter()
+                    .flatten()
+                    .all(|&i| processed[i]);
                 if all_inputs_ready && !processed[dependent] {
                     queue.push(dependent);
                 }
@@ -344,10 +361,18 @@ impl Graph {
     }
 
     fn process_node(&mut self, idx: usize, ctx: &ProcessContext, voices: &VoiceAllocator) {
-        // Collect input indices first (avoid borrow issues)
-        self.input_scratch.clear();
-        self.input_scratch
+        // Copy port-indexed inputs to scratch (avoid borrow issues)
+        self.port_scratch.clear();
+        self.port_scratch
             .extend_from_slice(&self.nodes[idx].inputs);
+
+        // Collect unique connected source node indices (for silence checks & voice mixing)
+        self.input_scratch.clear();
+        for &src in self.port_scratch.iter().flatten() {
+            if !self.input_scratch.contains(&src) {
+                self.input_scratch.push(src);
+            }
+        }
 
         // Check if all inputs are silent
         let inputs_silent = self.input_scratch.iter().all(|&i| self.nodes[i].silent);
@@ -363,23 +388,18 @@ impl Graph {
 
     fn process_global_node(&mut self, idx: usize, ctx: &ProcessContext, inputs_silent: bool) {
         let frames = ctx.frames;
-        let num_inputs = self.input_scratch.len();
-        let has_inputs = num_inputs > 0;
+        let has_inputs = !self.input_scratch.is_empty();
 
         // Clear output buffer
         let buf = &mut self.buffers[idx];
         buf.data[..buf.channels * frames].fill(0.0);
 
         // Early exit if all inputs are silent AND the node itself is already silent
-        // (i.e. its internal state like delay/reverb tails has fully decayed).
-        // If the node last reported non-silent, we must keep processing so it can
-        // drain its internal buffers.
         if inputs_silent && has_inputs && self.nodes[idx].silent {
             return;
         }
 
-        // For global nodes receiving per-voice inputs, we need to mix all voices together.
-        // First, mix per-voice inputs into their temp_voice buffers
+        // For global nodes receiving per-voice inputs, mix all voices into temp_voice
         for &input_idx in &self.input_scratch {
             let input_buf = &mut self.buffers[input_idx];
             if input_buf.is_per_voice {
@@ -387,7 +407,6 @@ impl Graph {
                 let voice_size = channels * frames;
                 input_buf.temp_voice[..voice_size].fill(0.0);
 
-                // Mix all voices into temp_voice
                 for voice_id in 0..self.max_voices {
                     let offset = voice_id * voice_size;
                     for i in 0..voice_size {
@@ -397,20 +416,22 @@ impl Graph {
             }
         }
 
-        // Now create AudioBuffer views, using temp_voice for per-voice inputs
-        // SAFETY: We need simultaneous read access to multiple input buffers.
-        // The borrow checker cannot verify that input indices differ from the output index,
-        // but we guarantee this by construction (a node cannot be its own input).
+        // Build port-indexed AudioBuffer views
+        // SAFETY: Input and output buffers are separate by construction.
+        let zero_ptr = self.zero_buf_data.as_ptr();
         let input_ptrs: Vec<_> = self
-            .input_scratch
+            .port_scratch
             .iter()
-            .map(|&i| {
-                let b = &self.buffers[i];
-                if b.is_per_voice {
-                    (b.temp_voice.as_ptr(), b.channels)
-                } else {
-                    (b.data.as_ptr(), b.channels)
+            .map(|opt| match *opt {
+                Some(i) => {
+                    let b = &self.buffers[i];
+                    if b.is_per_voice {
+                        (b.temp_voice.as_ptr(), b.channels)
+                    } else {
+                        (b.data.as_ptr(), b.channels)
+                    }
                 }
+                None => (zero_ptr, 1),
             })
             .collect();
 
@@ -453,13 +474,17 @@ impl Graph {
         let total_size = self.max_voices * channels * frames;
         buf.data[..total_size].fill(0.0);
 
-        // Collect metadata about input buffers (whether they're per-voice or global)
+        // Collect port-indexed metadata about input buffers
+        let zero_ptr = self.zero_buf_data.as_ptr();
         let input_metadata: Vec<_> = self
-            .input_scratch
+            .port_scratch
             .iter()
-            .map(|&i| {
-                let b = &self.buffers[i];
-                (b.data.as_ptr(), b.channels, b.is_per_voice)
+            .map(|opt| match *opt {
+                Some(i) => {
+                    let b = &self.buffers[i];
+                    (b.data.as_ptr(), b.channels, b.is_per_voice)
+                }
+                None => (zero_ptr, 1, false),
             })
             .collect();
 
