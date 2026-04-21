@@ -1,0 +1,15 @@
+{
+  "name": "hyasynth-engine",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "hyasynth_bg.wasm",
+    "hyasynth.js",
+    "hyasynth.d.ts"
+  ],
+  "main": "hyasynth.js",
+  "types": "hyasynth.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
