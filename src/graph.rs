@@ -5,10 +5,38 @@
 
 use crate::{
     audio_buffer::AudioBuffer,
+    modulation::ModContext,
     node::{Node, Polyphony, ProcessContext},
     node_factory::NodeFactory,
+    state::ModRouteId,
     voice_allocator::VoiceAllocator,
 };
+
+/// A modulation route resolved to runtime graph indices.
+///
+/// Created during compilation by mapping session NodeIds from the ModMatrix
+/// to runtime graph indices. These are used during processing to read
+/// modulator output buffers and apply per-sample modulation to parameters.
+#[derive(Debug, Clone)]
+pub struct CompiledModRoute {
+    /// Route ID (matches the session ModRouteId for runtime depth updates).
+    pub route_id: ModRouteId,
+
+    /// Runtime graph index of the modulator (source) node.
+    pub source_idx: usize,
+
+    /// Which output port/channel to read from the source buffer.
+    pub source_port: u32,
+
+    /// Runtime graph index of the destination node.
+    pub dest_idx: usize,
+
+    /// Parameter ID on the destination node to modulate.
+    pub dest_param: u32,
+
+    /// Modulation depth (-1.0 to 1.0).
+    pub depth: f32,
+}
 
 /// Storage for one node's output buffers.
 pub struct NodeBuffer {
@@ -180,6 +208,13 @@ pub struct Graph {
     /// Populated during compilation.
     pub id_to_index: std::collections::HashMap<crate::state::NodeId, usize>,
 
+    /// Compiled modulation routes (session IDs resolved to graph indices).
+    /// Used during processing for per-sample parameter modulation.
+    pub mod_routes: Vec<CompiledModRoute>,
+
+    /// Scratch space for per-node modulation accumulation.
+    mod_context: ModContext,
+
     /// Voices that finished during this processing block (envelope went idle).
     /// The engine should drain this after processing and deactivate these voices.
     voices_to_deactivate: Vec<crate::voice::VoiceId>,
@@ -204,6 +239,8 @@ impl Graph {
             port_scratch: Vec::new(),
             zero_buf_data: vec![0.0; max_block * 2],
             id_to_index: std::collections::HashMap::new(),
+            mod_routes: Vec::new(),
+            mod_context: ModContext::new(),
             voices_to_deactivate: Vec::new(),
             has_voice_release: false,
         }
@@ -379,10 +416,62 @@ impl Graph {
 
         let is_per_voice = self.nodes[idx].instance.is_per_voice();
 
-        if is_per_voice {
-            self.process_per_voice_node(idx, ctx, voices);
-        } else {
-            self.process_global_node(idx, ctx, inputs_silent);
+        // Build per-sample modulation context for this node
+        self.build_mod_context(idx, ctx.frames);
+
+        // Move mod context out of self to break borrow dependency.
+        // This is a cheap pointer swap — no allocation.
+        let mod_ctx = std::mem::replace(&mut self.mod_context, ModContext::new());
+
+        {
+            let ctx = ctx.with_modulation(&mod_ctx);
+            if is_per_voice {
+                self.process_per_voice_node(idx, &ctx, voices);
+            } else {
+                self.process_global_node(idx, &ctx, inputs_silent);
+            }
+        }
+
+        // Restore mod context (preserves allocated capacity for reuse)
+        self.mod_context = mod_ctx;
+    }
+
+    /// Build the modulation context for the node at `dest_idx`.
+    ///
+    /// Reads modulator output buffers for all compiled routes targeting this node,
+    /// scales by depth, and accumulates per-sample data keyed by dest param ID.
+    fn build_mod_context(&mut self, dest_idx: usize, frames: usize) {
+        self.mod_context.clear(frames);
+
+        if self.mod_routes.is_empty() {
+            return;
+        }
+
+        // Split borrows: mod_routes and buffers are read-only, mod_context is write-only
+        let mod_routes = &self.mod_routes;
+        let buffers = &self.buffers;
+        let mod_context = &mut self.mod_context;
+
+        for route in mod_routes {
+            if route.dest_idx != dest_idx {
+                continue;
+            }
+
+            if route.depth.abs() < 1e-7 {
+                continue;
+            }
+
+            let buf = &buffers[route.source_idx];
+
+            // Read channel 0 of source output.
+            // For per-voice sources, use the voice-mixed temp_voice buffer.
+            let source_slice = if buf.is_per_voice {
+                &buf.temp_voice[..frames]
+            } else {
+                &buf.data[..frames]
+            };
+
+            mod_context.accumulate(route.dest_param, source_slice, route.depth);
         }
     }
 
@@ -561,7 +650,28 @@ impl Graph {
             }
         }
 
+        // Mix all voices into temp_voice for downstream consumers (mod routes, global nodes).
+        // This ensures per-voice nodes can serve as modulation sources.
+        let buf = &mut self.buffers[idx];
+        let voice_size = channels * frames;
+        buf.temp_voice[..voice_size].fill(0.0);
+        for voice_id in 0..self.max_voices {
+            let offset = voice_id * voice_size;
+            for i in 0..voice_size {
+                buf.temp_voice[i] += buf.data[offset + i];
+            }
+        }
+
         self.nodes[idx].silent = all_silent;
+    }
+
+    /// Update the depth of a compiled modulation route at runtime.
+    /// This is RT-safe — no allocation, just a linear scan.
+    #[inline]
+    pub fn set_mod_depth(&mut self, route_id: ModRouteId, depth: f32) {
+        if let Some(route) = self.mod_routes.iter_mut().find(|r| r.route_id == route_id) {
+            route.depth = depth;
+        }
     }
 
     /// Set a parameter on a specific node by graph index.

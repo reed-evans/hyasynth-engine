@@ -254,6 +254,8 @@ impl Engine {
             | Command::SetOutputNode { .. }
             | Command::ClearGraph
             | Command::LoadConnections { .. }
+            | Command::AddModRoute { .. }
+            | Command::RemoveModRoute { .. }
             | Command::RecompileGraph => {
                 // These commands modify graph structure.
                 // The caller must recompile the graph from the updated GraphDef
@@ -299,6 +301,12 @@ impl Engine {
 
             // Timeline commands - handled by session state
             Command::ScheduleClip { .. } | Command::RemoveClipPlacement { .. } => true,
+
+            // Modulation depth changes - RT safe, updates compiled route
+            Command::SetModDepth { route_id, depth } => {
+                self.graph.set_mod_depth(*route_id, *depth);
+                true
+            }
 
             // Compilation commands - sync handled elsewhere
             Command::SyncTrackParams { .. } | Command::SyncAllTrackParams => true,

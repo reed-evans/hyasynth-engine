@@ -92,7 +92,6 @@ impl Node for SineOsc {
     ) -> bool {
         let voice_note = ctx.voice.map(|v| v.note);
         let base = self.base_freq(voice_note);
-        let detune_factor = 2.0f32.powf(self.detune / 1200.0);
 
         if let Some(voice) = ctx.voice {
             if voice.trigger {
@@ -109,6 +108,10 @@ impl Node for SineOsc {
         let phase_in = inputs.get(1);
         let retrigger_in = inputs.get(2);
         let frames = ctx.frames;
+
+        // Modulation matrix: per-sample parameter offsets
+        let freq_mod = ctx.modulation.and_then(|m| m.get(params::FREQ));
+        let detune_mod = ctx.modulation.and_then(|m| m.get(params::DETUNE));
 
         // Left channel
         {
@@ -130,7 +133,10 @@ impl Node for SineOsc {
                 let phase_offset = phase_in
                     .and_then(|b| b.channel(0).get(i).copied())
                     .unwrap_or(0.0);
-                let freq = base * detune_factor * 2.0f32.powf(pitch_mod / 12.0);
+                let fm = freq_mod.map_or(0.0, |s| s[i]);
+                let dm = detune_mod.map_or(0.0, |s| s[i]);
+                let freq = base
+                    * 2.0f32.powf((self.detune + dm) / 1200.0 + (pitch_mod + fm) / 12.0);
                 let inc = freq / self.sample_rate;
                 let ep = (self.phase_l + phase_offset).fract().abs();
                 buf[i] = (ep * TAU).sin();
@@ -150,7 +156,10 @@ impl Node for SineOsc {
                     let phase_offset = phase_in
                         .and_then(|b| b.channel(0).get(i).copied())
                         .unwrap_or(0.0);
-                    let freq = base / detune_factor * 2.0f32.powf(pitch_mod / 12.0);
+                    let fm = freq_mod.map_or(0.0, |s| s[i]);
+                    let dm = detune_mod.map_or(0.0, |s| s[i]);
+                    let freq = base
+                        * 2.0f32.powf(-(self.detune + dm) / 1200.0 + (pitch_mod + fm) / 12.0);
                     let inc = freq / self.sample_rate;
                     let ep = (self.phase_r + phase_offset).fract().abs();
                     buf_r[i] = (ep * TAU).sin();
@@ -252,7 +261,6 @@ impl Node for SawOsc {
     ) -> bool {
         let voice_note = ctx.voice.map(|v| v.note);
         let base = self.base_freq(voice_note);
-        let detune_factor = 2.0f32.powf(self.detune / 1200.0);
 
         if let Some(voice) = ctx.voice {
             if voice.trigger {
@@ -269,6 +277,10 @@ impl Node for SawOsc {
         let phase_in = inputs.get(1);
         let retrigger_in = inputs.get(2);
         let frames = ctx.frames;
+
+        // Modulation matrix: per-sample parameter offsets
+        let freq_mod = ctx.modulation.and_then(|m| m.get(params::FREQ));
+        let detune_mod = ctx.modulation.and_then(|m| m.get(params::DETUNE));
 
         // Left channel
         {
@@ -290,7 +302,10 @@ impl Node for SawOsc {
                 let phase_offset = phase_in
                     .and_then(|b| b.channel(0).get(i).copied())
                     .unwrap_or(0.0);
-                let freq = base * detune_factor * 2.0f32.powf(pitch_mod / 12.0);
+                let fm = freq_mod.map_or(0.0, |s| s[i]);
+                let dm = detune_mod.map_or(0.0, |s| s[i]);
+                let freq = base
+                    * 2.0f32.powf((self.detune + dm) / 1200.0 + (pitch_mod + fm) / 12.0);
                 let inc = freq / self.sample_rate;
                 let ep = (self.phase_l + phase_offset).fract().abs();
                 buf[i] = 2.0 * ep - 1.0 - poly_blep(ep, inc);
@@ -310,7 +325,10 @@ impl Node for SawOsc {
                     let phase_offset = phase_in
                         .and_then(|b| b.channel(0).get(i).copied())
                         .unwrap_or(0.0);
-                    let freq = base / detune_factor * 2.0f32.powf(pitch_mod / 12.0);
+                    let fm = freq_mod.map_or(0.0, |s| s[i]);
+                    let dm = detune_mod.map_or(0.0, |s| s[i]);
+                    let freq = base
+                        * 2.0f32.powf(-(self.detune + dm) / 1200.0 + (pitch_mod + fm) / 12.0);
                     let inc = freq / self.sample_rate;
                     let ep = (self.phase_r + phase_offset).fract().abs();
                     buf_r[i] = 2.0 * ep - 1.0 - poly_blep(ep, inc);
@@ -414,7 +432,6 @@ impl Node for SquareOsc {
     ) -> bool {
         let voice_note = ctx.voice.map(|v| v.note);
         let base = self.base_freq(voice_note);
-        let detune_factor = 2.0f32.powf(self.detune / 1200.0);
 
         if let Some(voice) = ctx.voice {
             if voice.trigger {
@@ -431,7 +448,11 @@ impl Node for SquareOsc {
         let phase_in = inputs.get(1);
         let retrigger_in = inputs.get(2);
         let frames = ctx.frames;
-        let pw = self.pulse_width;
+
+        // Modulation matrix: per-sample parameter offsets
+        let freq_mod = ctx.modulation.and_then(|m| m.get(params::FREQ));
+        let detune_mod = ctx.modulation.and_then(|m| m.get(params::DETUNE));
+        let pw_mod = ctx.modulation.and_then(|m| m.get(params::PULSE_WIDTH));
 
         // Left channel
         {
@@ -453,7 +474,12 @@ impl Node for SquareOsc {
                 let phase_offset = phase_in
                     .and_then(|b| b.channel(0).get(i).copied())
                     .unwrap_or(0.0);
-                let freq = base * detune_factor * 2.0f32.powf(pitch_mod / 12.0);
+                let fm = freq_mod.map_or(0.0, |s| s[i]);
+                let dm = detune_mod.map_or(0.0, |s| s[i]);
+                let pw =
+                    (self.pulse_width + pw_mod.map_or(0.0, |s| s[i])).clamp(0.01, 0.99);
+                let freq = base
+                    * 2.0f32.powf((self.detune + dm) / 1200.0 + (pitch_mod + fm) / 12.0);
                 let inc = freq / self.sample_rate;
                 let ep = (self.phase_l + phase_offset).fract().abs();
                 let mut s = if ep < pw { 1.0 } else { -1.0 };
@@ -476,7 +502,12 @@ impl Node for SquareOsc {
                     let phase_offset = phase_in
                         .and_then(|b| b.channel(0).get(i).copied())
                         .unwrap_or(0.0);
-                    let freq = base / detune_factor * 2.0f32.powf(pitch_mod / 12.0);
+                    let fm = freq_mod.map_or(0.0, |s| s[i]);
+                    let dm = detune_mod.map_or(0.0, |s| s[i]);
+                    let pw =
+                        (self.pulse_width + pw_mod.map_or(0.0, |s| s[i])).clamp(0.01, 0.99);
+                    let freq = base
+                        * 2.0f32.powf(-(self.detune + dm) / 1200.0 + (pitch_mod + fm) / 12.0);
                     let inc = freq / self.sample_rate;
                     let ep = (self.phase_r + phase_offset).fract().abs();
                     let mut s = if ep < pw { 1.0 } else { -1.0 };
@@ -582,7 +613,6 @@ impl Node for TriangleOsc {
     ) -> bool {
         let voice_note = ctx.voice.map(|v| v.note);
         let base = self.base_freq(voice_note);
-        let detune_factor = 2.0f32.powf(self.detune / 1200.0);
 
         if let Some(voice) = ctx.voice {
             if voice.trigger {
@@ -599,6 +629,10 @@ impl Node for TriangleOsc {
         let phase_in = inputs.get(1);
         let retrigger_in = inputs.get(2);
         let frames = ctx.frames;
+
+        // Modulation matrix: per-sample parameter offsets
+        let freq_mod = ctx.modulation.and_then(|m| m.get(params::FREQ));
+        let detune_mod = ctx.modulation.and_then(|m| m.get(params::DETUNE));
 
         #[inline]
         fn tri_sample(phase: f32) -> f32 {
@@ -629,7 +663,10 @@ impl Node for TriangleOsc {
                 let phase_offset = phase_in
                     .and_then(|b| b.channel(0).get(i).copied())
                     .unwrap_or(0.0);
-                let freq = base * detune_factor * 2.0f32.powf(pitch_mod / 12.0);
+                let fm = freq_mod.map_or(0.0, |s| s[i]);
+                let dm = detune_mod.map_or(0.0, |s| s[i]);
+                let freq = base
+                    * 2.0f32.powf((self.detune + dm) / 1200.0 + (pitch_mod + fm) / 12.0);
                 let inc = freq / self.sample_rate;
                 let ep = (self.phase_l + phase_offset).fract().abs();
                 buf[i] = tri_sample(ep);
@@ -649,7 +686,10 @@ impl Node for TriangleOsc {
                     let phase_offset = phase_in
                         .and_then(|b| b.channel(0).get(i).copied())
                         .unwrap_or(0.0);
-                    let freq = base / detune_factor * 2.0f32.powf(pitch_mod / 12.0);
+                    let fm = freq_mod.map_or(0.0, |s| s[i]);
+                    let dm = detune_mod.map_or(0.0, |s| s[i]);
+                    let freq = base
+                        * 2.0f32.powf(-(self.detune + dm) / 1200.0 + (pitch_mod + fm) / 12.0);
                     let inc = freq / self.sample_rate;
                     let ep = (self.phase_r + phase_offset).fract().abs();
                     buf_r[i] = tri_sample(ep);
@@ -819,11 +859,17 @@ impl PhaseOsc {
     /// Generate one sample with phase distortion, formant, and feedback.
     #[inline]
     fn generate(&mut self, phase: f32) -> f32 {
+        self.generate_with(phase, self.shape, self.feedback)
+    }
+
+    /// Generate one sample with explicit shape and feedback values (for modulation).
+    #[inline]
+    fn generate_with(&mut self, phase: f32, shape: f32, feedback: f32) -> f32 {
         // Apply feedback to phase (phase modulation)
-        let fb_phase = (phase + self.feedback_sample * self.feedback).fract().abs();
+        let fb_phase = (phase + self.feedback_sample * feedback).fract().abs();
 
         // Apply phase distortion (shape parameter)
-        let pd_phase = Self::phase_distort(fb_phase, self.shape);
+        let pd_phase = Self::phase_distort(fb_phase, shape);
 
         // Apply formant (multiply phase, wrap to create extra cycles within one period)
         let formant_phase = (pd_phase * self.formant as f32).fract();
@@ -886,10 +932,13 @@ impl Node for PhaseOsc {
         let pitch_in = inputs.first(); // Port 0: semitones
         let phase_in = inputs.get(1); // Port 1: phase offset (0-1)
         let retrigger_in = inputs.get(2); // Port 2: retrigger
-
-        // Process left channel and store per-sample data for right channel
-        // (avoids double mutable borrow of output)
         let frames = ctx.frames;
+
+        // Modulation matrix: per-sample parameter offsets
+        let shape_mod = ctx.modulation.and_then(|m| m.get(params::SHAPE));
+        let feedback_mod = ctx.modulation.and_then(|m| m.get(params::PO_FEEDBACK));
+        let pitch_offset_mod = ctx.modulation.and_then(|m| m.get(params::PITCH_OFFSET));
+        let detune_mod = ctx.modulation.and_then(|m| m.get(params::PO_DETUNE));
 
         // Left channel pass: generate samples, advance phase_l, update feedback
         {
@@ -913,12 +962,19 @@ impl Node for PhaseOsc {
                     .and_then(|buf| buf.channel(0).get(i).copied())
                     .unwrap_or(0.0);
 
-                let base_freq = self.compute_freq(voice_note, pitch_mod);
-                let freq_l = (base_freq + self.detune).max(0.0);
+                let po = pitch_offset_mod.map_or(0.0, |s| s[i]);
+                let dm = detune_mod.map_or(0.0, |s| s[i]);
+                let sm = shape_mod.map_or(0.0, |s| s[i]);
+                let fm = feedback_mod.map_or(0.0, |s| s[i]);
+
+                let base_freq = self.compute_freq(voice_note, pitch_mod + po);
+                let freq_l = (base_freq + self.detune + dm).max(0.0);
                 let inc_l = freq_l / self.sample_rate;
 
                 let effective_phase = (self.phase_l + phase_offset).fract().abs();
-                let sample = self.generate(effective_phase);
+                let shape = (self.shape + sm).clamp(0.0, 1.0);
+                let feedback = (self.feedback + fm).clamp(0.0, 1.0);
+                let sample = self.generate_with(effective_phase, shape, feedback);
                 out_l[i] = sample;
 
                 self.phase_l = (self.phase_l + inc_l).fract();
@@ -928,7 +984,6 @@ impl Node for PhaseOsc {
         // Right channel pass
         {
             let out_l_ref = output.channel(0);
-            // Copy left samples for the non-stereo-detune path
             let left_samples: Vec<f32> = out_l_ref[..frames].to_vec();
 
             let out_r = output.channel_mut(1);
@@ -941,16 +996,22 @@ impl Node for PhaseOsc {
                         .and_then(|buf| buf.channel(0).get(i).copied())
                         .unwrap_or(0.0);
 
-                    let base_freq = self.compute_freq(voice_note, pitch_mod);
-                    let freq_r = (base_freq - self.detune).max(0.0);
+                    let po = pitch_offset_mod.map_or(0.0, |s| s[i]);
+                    let dm = detune_mod.map_or(0.0, |s| s[i]);
+                    let sm = shape_mod.map_or(0.0, |s| s[i]);
+                    let fm = feedback_mod.map_or(0.0, |s| s[i]);
+
+                    let base_freq = self.compute_freq(voice_note, pitch_mod + po);
+                    let freq_r = (base_freq - self.detune - dm).max(0.0);
                     let inc_r = freq_r / self.sample_rate;
 
                     let effective_phase = (self.phase_r + phase_offset).fract().abs();
                     // Generate directly (don't update feedback_sample again)
-                    let fb_phase = (effective_phase + self.feedback_sample * self.feedback)
-                        .fract()
-                        .abs();
-                    let pd_phase = Self::phase_distort(fb_phase, self.shape);
+                    let shape = (self.shape + sm).clamp(0.0, 1.0);
+                    let feedback = (self.feedback + fm).clamp(0.0, 1.0);
+                    let fb_phase =
+                        (effective_phase + self.feedback_sample * feedback).fract().abs();
+                    let pd_phase = Self::phase_distort(fb_phase, shape);
                     let formant_phase = (pd_phase * self.formant as f32).fract();
                     out_r[i] = Self::algorithm_sample(formant_phase, self.algorithm);
 

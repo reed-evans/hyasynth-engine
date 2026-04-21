@@ -560,6 +560,44 @@ impl HyasynthSession {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // Modulation
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// Add a modulation route. Returns the route ID.
+    /// Requires graph recompilation to take effect.
+    pub fn add_mod_route(
+        &mut self,
+        source_node: u32,
+        source_port: u32,
+        dest_node: u32,
+        dest_param: u32,
+        depth: f32,
+    ) -> u32 {
+        self.inner.send(Command::AddModRoute {
+            source_node,
+            source_port,
+            dest_node,
+            dest_param,
+            depth,
+        });
+        // Return the route ID from the session's mod matrix
+        let routes = &self.inner.session().graph.mod_matrix.routes;
+        routes.last().map(|r| r.id).unwrap_or(u32::MAX)
+    }
+
+    /// Remove a modulation route by ID.
+    /// Requires graph recompilation to take effect.
+    pub fn remove_mod_route(&mut self, route_id: u32) {
+        self.inner.send(Command::RemoveModRoute { route_id });
+    }
+
+    /// Set the depth of a modulation route (-1.0 to 1.0).
+    /// This is real-time safe and takes effect immediately.
+    pub fn set_mod_depth(&mut self, route_id: u32, depth: f32) {
+        self.inner.send(Command::SetModDepth { route_id, depth });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     // Timeline
     // ─────────────────────────────────────────────────────────────────────────
 

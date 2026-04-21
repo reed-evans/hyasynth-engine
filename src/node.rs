@@ -1,4 +1,5 @@
 use crate::audio_buffer::AudioBuffer;
+use crate::modulation::ModContext;
 use crate::state::AudioPoolId;
 use crate::voice::VoiceContext;
 
@@ -33,6 +34,10 @@ pub struct ProcessContext<'a> {
     /// Whether the global transport is playing
     pub playing: bool,
 
+    /// Per-sample modulation data for this node's parameters.
+    /// `None` if no modulation routes target this node.
+    pub modulation: Option<&'a ModContext>,
+
     /// Marker for lifetime
     _marker: std::marker::PhantomData<&'a ()>,
 }
@@ -46,12 +51,18 @@ impl<'a> ProcessContext<'a> {
             bpm,
             playing,
             voice: None,
+            modulation: None,
             _marker: std::marker::PhantomData,
         }
     }
 
     pub fn with_voice(mut self, voice: VoiceContext) -> Self {
         self.voice = Some(voice);
+        self
+    }
+
+    pub fn with_modulation(mut self, mod_ctx: &'a ModContext) -> Self {
+        self.modulation = if mod_ctx.is_empty() { None } else { Some(mod_ctx) };
         self
     }
 }

@@ -353,6 +353,31 @@ impl SessionHandle {
                 // Sync computed on-demand.
             }
 
+            // ═══════════════════════════════════════════════════════════════
+            // Modulation commands
+            // ═══════════════════════════════════════════════════════════════
+            Command::AddModRoute {
+                source_node,
+                source_port,
+                dest_node,
+                dest_param,
+                depth,
+            } => {
+                self.session.graph.mod_matrix.add_route(
+                    *source_node,
+                    *source_port,
+                    *dest_node,
+                    *dest_param,
+                    *depth,
+                );
+            }
+            Command::RemoveModRoute { route_id } => {
+                self.session.graph.mod_matrix.remove_route(*route_id);
+            }
+            Command::SetModDepth { route_id, depth } => {
+                self.session.graph.mod_matrix.set_depth(*route_id, *depth);
+            }
+
             // Commands that don't affect session state directly
             Command::BeginParamGesture { .. }
             | Command::EndParamGesture { .. }

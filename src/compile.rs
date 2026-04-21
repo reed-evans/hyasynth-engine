@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use crate::graph::{Graph, NodeInstance};
+use crate::graph::{CompiledModRoute, Graph, NodeInstance};
 use crate::node_factory::NodeRegistry;
 use crate::state::{GraphDef, NodeId};
 
@@ -113,6 +113,24 @@ pub fn compile(
                 })?;
 
         graph.connect(*src_idx, *dst_idx, conn.dest_port);
+    }
+
+    // Compile modulation routes: resolve session NodeIds to runtime graph indices
+    for route in &def.mod_matrix.routes {
+        if let (Some(&src_idx), Some(&dst_idx)) = (
+            id_to_index.get(&route.source_node),
+            id_to_index.get(&route.dest_node),
+        ) {
+            graph.mod_routes.push(CompiledModRoute {
+                route_id: route.id,
+                source_idx: src_idx,
+                source_port: route.source_port,
+                dest_idx: dst_idx,
+                dest_param: route.dest_param,
+                depth: route.depth,
+            });
+        }
+        // Silently skip routes referencing deleted/missing nodes
     }
 
     // Set output node

@@ -3,7 +3,7 @@
 // Commands are the ONLY way the UI can mutate engine state.
 // They are queued and processed on the appropriate thread.
 
-use super::{ClipId, ConnectionDef, NodeDef, NodeId, NodeTypeId, PortId, SceneId, TrackId};
+use super::{ClipId, ConnectionDef, ModRouteId, NodeDef, NodeId, NodeTypeId, PortId, SceneId, TrackId};
 
 /// A command from the UI to the engine.
 ///
@@ -202,6 +202,24 @@ pub enum Command {
 
     /// Remove a clip placement from the timeline.
     RemoveClipPlacement { track_id: TrackId, start_beat: f64 },
+
+    // ═══════════════════════════════════════════
+    // Modulation
+    // ═══════════════════════════════════════════
+    /// Add a modulation route.
+    AddModRoute {
+        source_node: NodeId,
+        source_port: PortId,
+        dest_node: NodeId,
+        dest_param: u32,
+        depth: f32,
+    },
+
+    /// Remove a modulation route.
+    RemoveModRoute { route_id: ModRouteId },
+
+    /// Update a modulation route's depth.
+    SetModDepth { route_id: ModRouteId, depth: f32 },
 
     // ═══════════════════════════════════════════
     // Compilation

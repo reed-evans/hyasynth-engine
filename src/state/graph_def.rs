@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use super::ParamInfo;
+use super::{ModMatrix, ParamInfo};
 
 /// Unique identifier for a node type (e.g., "oscillator", "filter").
 pub type NodeTypeId = u32;
@@ -184,6 +184,9 @@ pub struct GraphDef {
     /// All connections
     pub connections: Vec<ConnectionDef>,
 
+    /// Modulation routing table
+    pub mod_matrix: ModMatrix,
+
     /// The output node (final audio destination)
     pub output_node: Option<NodeId>,
 
@@ -213,10 +216,12 @@ impl GraphDef {
         id
     }
 
-    /// Remove a node and all its connections.
+    /// Remove a node and all its connections and modulation routes.
     pub fn remove_node(&mut self, id: NodeId) -> Option<NodeDef> {
         self.connections
             .retain(|c| c.source_node != id && c.dest_node != id);
+
+        self.mod_matrix.remove_routes_for_node(id);
 
         if self.output_node == Some(id) {
             self.output_node = None;
